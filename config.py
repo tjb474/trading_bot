@@ -1,3 +1,18 @@
+
+import os
+from dotenv import load_dotenv
+
+# Explicitly load .env from the current directory (where this file is located)
+dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
+load_dotenv(dotenv_path=dotenv_path, override=True)
+
+# --- IG API Credentials (loaded from .env) ---
+IG_USERNAME = os.getenv("IG_USERNAME")
+IG_PASSWORD = os.getenv("IG_PASSWORD")
+IG_API_KEY = os.getenv("IG_API_KEY")
+IG_ACC_TYPE = os.getenv("IG_ACC_TYPE", "DEMO") # Defaults to DEMO if not set
+# --- The rest of your config file continues below ---
+
 # --- Trading Strategy Parameters ---
 # Find the EPIC for the instrument you want to trade on the IG platform.
 # This example is for the S&P 500 (Daily Funded Bet)
