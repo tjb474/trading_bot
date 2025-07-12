@@ -2,27 +2,38 @@
 
 import pandas as pd
 import mplfinance as mpf
+import os
 
 def plot_ohlc_data(file_path, start_date=None, end_date=None):
     """
-    Loads OHLC data from a CSV file and plots it as a candlestick chart.
+    Loads OHLC data from a CSV or DBN file and plots it as a candlestick chart.
     Includes volume and the moving averages used in the strategy.
 
     Args:
-        file_path (str): The path to the CSV file.
+        file_path (str): The path to the CSV or DBN file.
         start_date (str, optional): The start date for the plot slice (e.g., '2025-06-09').
         end_date (str, optional): The end date for the plot slice (e.g., '2025-06-11').
     """
     print(f"Attempting to load data from: {file_path}")
     try:
-        # 1. Load the data using pandas
-        # We know the first column is the datetime index.
-        df = pd.read_csv(
-            file_path,
-            index_col=0,
-            parse_dates=True
-        )
-        print("Data loaded successfully.")
+        ext = os.path.splitext(file_path)[1].lower()
+        if ext == '.dbn':
+            try:
+                from databento import DBNStore
+            except ImportError:
+                print("Error: databento package is not installed. Please install it with 'pip install databento'.")
+                return
+            store = DBNStore.from_file(file_path)
+            df = store.to_df()
+            print("DBN file loaded and converted to DataFrame.")
+        else:
+            # 1. Load the data using pandas
+            df = pd.read_csv(
+                file_path,
+                index_col=0,
+                parse_dates=True
+            )
+            print("CSV data loaded successfully.")
 
         # 2. Prepare the data for plotting
         # mplfinance requires specific column names: 'Open', 'High', 'Low', 'Close', 'Volume'
@@ -69,12 +80,11 @@ def plot_ohlc_data(file_path, start_date=None, end_date=None):
 
 if __name__ == '__main__':
     # --- Configuration ---
-    CSV_FILE = 'SPY_1min_full.csv'
-
+    DBN_FILE = './data/spy_ohlcv_new.dbn'
     # IMPORTANT: Change these dates to view different parts of your data.
     # Let's plot the first two full days of data as an example.
     START_PLOT_DATE = '2025-06-09'
     END_PLOT_DATE = '2025-06-10'
 
     # --- Run the plotting function ---
-    plot_ohlc_data(CSV_FILE, start_date=START_PLOT_DATE, end_date=END_PLOT_DATE)
+    plot_ohlc_data(DBN_FILE, start_date=START_PLOT_DATE, end_date=END_PLOT_DATE)
