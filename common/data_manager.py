@@ -1,10 +1,15 @@
 # common/data_manager.py
 
 import pandas as pd
+import os
 from typing import Tuple
+from data.data_manager import load_dbn_to_df
 
 def load_ohlc_data(file_path: str) -> pd.DataFrame:
-    """Loads OHLC data from a CSV file and prepares it."""
+    """Loads OHLC data from a CSV or DBN file and prepares it."""
+    ext = os.path.splitext(file_path)[1].lower()
+    if ext == '.dbn':
+        return load_dbn_to_df(file_path)
     try:
         df = pd.read_csv(file_path, index_col=0, parse_dates=True).sort_index()
         # --- DEFINITIVE FIX ---

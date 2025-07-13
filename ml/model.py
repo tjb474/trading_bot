@@ -7,6 +7,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import classification_report
 # Note: You were importing from ml.feature_engineering. The correct relative import is .feature_engineering
 from .feature_engineering import create_features 
+from data.data_manager import load_dbn_to_df
 
 def _generate_signals(df: pd.DataFrame, short_window: int, long_window: int) -> pd.DataFrame:
     """Generates a DataFrame of all potential BUY signals from the MA crossover."""

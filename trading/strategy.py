@@ -20,7 +20,17 @@ class MLStrategy(bt.Strategy):
         
         self.returns = bt.indicators.PercentChange(self.data.close, period=1)
         self.volatility = bt.indicators.StandardDeviation(self.returns, period=cfg.FEATURE_VOL_WINDOW)
-        self.rsi = bt.indicators.RSI_SMA(self.data.close, period=cfg.FEATURE_RSI_WINDOW)
+        
+        # --- FIX: Make RSI calculation safe ---
+        # The `safediv=True` parameter prevents division-by-zero errors.
+        # If the average loss is zero, it will return `safehigh` (100.0) if there were gains,
+        # or `safelow` (50.0) if there were no price changes.
+        self.rsi = bt.indicators.RSI_SMA(
+            self.data.close,
+            period=cfg.FEATURE_RSI_WINDOW,
+            safediv=True
+        )
+        # --- END FIX ---
         
         try:
             self.model = joblib.load(cfg.MODEL_FILE_PATH)

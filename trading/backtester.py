@@ -2,10 +2,22 @@
 
 import backtrader as bt
 import pandas as pd
+import logging
 from .strategy import MLStrategy
+from data.data_manager import load_dbn_to_df
 
 def run_backtest(test_data: pd.DataFrame, config):
-    # ... (cerebro setup is unchanged) ...
+    # --- Logging setup ---
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+    logger = logging.getLogger("Backtester")
+    logger.info(f"Starting backtest with {len(test_data)} rows.")
+    logger.info(f"Columns: {list(test_data.columns)}")
+    logger.info(f"Data types:\n{test_data.dtypes}")
+    nan_counts = test_data.isnull().sum()
+    logger.info(f"NaN counts per column:\n{nan_counts}")
+    logger.info(f"First 5 rows:\n{test_data.head()}\n")
+    # --- END OF Logging setup ---
+
     cerebro = bt.Cerebro()
     
     data_feed = bt.feeds.PandasData(dataname=test_data)

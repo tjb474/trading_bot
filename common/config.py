@@ -11,15 +11,15 @@ load_dotenv(dotenv_path=dotenv_path)
 
 # --- Path Configurations ---
 DATA_DIR = os.path.join(BASE_DIR, 'data')
-DATA_FILE_PATH = os.path.join(DATA_DIR, 'SPY_1min_full.csv')
+DATA_FILE_PATH = os.path.join(DATA_DIR, 'spy_ohlcv_new.dbn')
 MODEL_FILE_PATH = os.path.join(DATA_DIR, 'profit_model.joblib')
 
 # --- Data & Splitting Parameters ---
 TRAIN_TEST_SPLIT_RATIO = 0.8
 
 # --- Trading Strategy Parameters ---
-SHORT_WINDOW = 40
-LONG_WINDOW = 100
+SHORT_WINDOW = 60
+LONG_WINDOW = 140
 
 # --- ML Model Parameters ---
 PROBABILITY_THRESHOLD = 0.60

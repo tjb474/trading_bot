@@ -1,5 +1,6 @@
 # common/data_manager.py
 
+import os
 import pandas as pd
 from typing import Tuple
 
@@ -26,3 +27,18 @@ def split_data(df: pd.DataFrame, split_ratio: float) -> Tuple[pd.DataFrame, pd.D
     testing_df = df.iloc[split_index:]
     print(f"Data split. Training set: {len(training_df)} bars, Testing set: {len(testing_df)} bars.")
     return training_df, testing_df
+
+def load_dbn_to_df(dbn_path):
+    """
+    Loads a Databento .dbn file and returns a pandas DataFrame.
+    """
+    ext = os.path.splitext(dbn_path)[1].lower()
+    if ext != '.dbn':
+        raise ValueError(f"File {dbn_path} is not a .dbn file.")
+    try:
+        from databento import DBNStore
+    except ImportError:
+        raise ImportError("databento package is not installed. Please install it with 'pip install databento'.")
+    store = DBNStore.from_file(dbn_path)
+    df = store.to_df()
+    return df
