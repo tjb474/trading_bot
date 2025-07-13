@@ -1,6 +1,5 @@
 # ml/feature_engineering.py
 import pandas as pd
-from data.data_manager import load_dbn_to_df
 
 def create_features(df):
     """

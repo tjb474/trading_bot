@@ -7,7 +7,6 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import classification_report
 # Note: You were importing from ml.feature_engineering. The correct relative import is .feature_engineering
 from .feature_engineering import create_features 
-from data.data_manager import load_dbn_to_df
 
 def _generate_signals(df: pd.DataFrame, short_window: int, long_window: int) -> pd.DataFrame:
     """Generates a DataFrame of all potential BUY signals from the MA crossover."""
@@ -48,19 +47,19 @@ def _label_trades(signals: pd.DataFrame, df: pd.DataFrame) -> pd.DataFrame:
     print(signals['target'].value_counts(normalize=True))
     return signals
 
-def train_and_save_model(training_data: pd.DataFrame, config):
+def train_and_save_model(training_data, params, app_config):
     """Orchestrates the model training and saving pipeline."""
     print("--- Starting Meta-Model Training Pipeline ---")
     
     # The functions below now correctly modify the training_data DataFrame
-    signals_df = _generate_signals(training_data, config.SHORT_WINDOW, config.LONG_WINDOW)
+    signals_df = _generate_signals(training_data, params['short_window'], params['long_window'])
     labeled_signals = _label_trades(signals_df, training_data)
     
     # This call will now work because training_data has a 'close' column
     features_df = create_features(training_data) 
     model_data = labeled_signals.join(features_df, how='inner').dropna()
     
-    X = model_data[config.FEATURE_LIST]
+    X = model_data[params['feature_list']]
     y = model_data['target']
     
     if X.empty:
@@ -76,5 +75,7 @@ def train_and_save_model(training_data: pd.DataFrame, config):
     print("\n--- Model Evaluation on Hold-Out Test Set ---")
     print(classification_report(y_test, model.predict(X_test)))
     
-    joblib.dump(model, config.MODEL_FILE_PATH)
-    print(f"\nModel successfully trained and saved to {config.MODEL_FILE_PATH}")
+    # Save the model to the correct, strategy-specific path
+    model_path = app_config.get_model_path()
+    joblib.dump(model, model_path)
+    print(f"Model saved to {model_path}")

@@ -10,7 +10,7 @@
 - [ ] Feature - narrowed day in X days? Was it the narrowest in 7 days, or the narrowest in 70? This "degree of narrowness" is a powerful piece of information
 
 ## Low Priority
-- [ ] Task 1
+- [ ] Class imbalance?
 - [ ] Task 2
 
 ## Notes
