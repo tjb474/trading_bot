@@ -1,33 +1,55 @@
-# --- General Settings for the Bot ---
-general:
+# --- File Paths ---
+paths:
+  data: "data/spy_ohlcv_new.dbn"  # Main data file for training/backtesting
+
+# --- Trading Parameters ---
+trading:
   initial_cash: 100000.0
   commission_spread_points: 0.8
-  data_file_path: "data/spy_ohlcv_new.dbn" # Use the .dbn file
+  stake_size: 10
   train_test_split_ratio: 0.8
-  stake_size: 10 # Added stake size here for the backtester
 
-# --- Active Strategy Selection ---
-# This tells the bot which strategy to load and run.
+# --- Active Strategy ---
 active_strategy: "ml_moving_average_crossover"
 
-# --- Strategy-Specific Parameter Sets ---
-# Each key here must match a strategy name in strategies/__init__.py
+# --- Strategy Configurations ---
 strategies:
+  # Moving Average Crossover with ML
   ml_moving_average_crossover:
+    # Technical Parameters
     short_window: 40
     long_window: 100
-    feature_vol_window: 20
-    feature_rsi_window: 14
-    model_file_path: "data/profit_model.joblib"
-    probability_threshold: 0.60
-    # The list of features for the model to use
-    feature_list: ['returns', 'volatility', 'rsi']
+    
+    # Feature Engineering
+    features:
+      volatility_window: 20
+      rsi_window: 14
+      feature_list: ['returns', 'volatility', 'rsi']
+    
+    # Model Configuration  
+    model:
+      path: "data/ml_moving_average_model.joblib"
+      probability_threshold: 0.70
 
-  # Example for a future strategy, you can leave it commented out
-  # rsi_mean_reversion:
-  #   rsi_period: 14
-  #   oversold: 30
-  #   overbought: 70
-  #   model_file_path: "data/rsi_reversion_model.joblib"
-  #   probability_threshold: 0.55
-  #   feature_list: ['rsi']
+  # Opening Range Breakout
+  ml_open_range_breakout:
+    # Time Parameters
+    range:
+      start: "09:30:00"
+      end: "10:00:00"
+    
+    # Risk Management
+    risk:
+      take_profit_multiplier: 1.0
+      stop_loss_multiplier: 0.5
+    
+    # Feature Engineering
+    features:
+      volatility_window: 20
+      rsi_window: 14
+      feature_list: ['returns', 'volatility', 'rsi', 'is_nr4', 'is_nr7']
+    
+    # Model Configuration
+    model:
+      path: "data/ml_orb_model.joblib"
+      probability_threshold: 0.70

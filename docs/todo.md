@@ -1,7 +1,7 @@
 # To-Do List
 
 ## High Priority
-- [ ] Task 1
+- [ ] Update KPI to an R:R or % gain
 - [ ] Task 2
 
 ## Medium Priority

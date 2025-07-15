@@ -1,15 +1,23 @@
 from .ml_moving_average_crossover import MLMovingAverageCrossover
-# from .rsi_mean_reversion import RsiMeanReversion # Uncomment when you implement this
+from .ml_open_range_breakout import MLOpenRangeBreakout
 
 def get_strategy(strategy_name: str):
     """
-    Factory function to get a strategy class by its name.
+    Factory function to return the appropriate strategy class.
+    
+    Args:
+        strategy_name (str): Name of the strategy to return
+        
+    Returns:
+        Strategy class that can be used with backtrader
     """
     strategies = {
-        "ml_moving_average_crossover": MLMovingAverageCrossover,
-        # "rsi_mean_reversion": RsiMeanReversion,
+        'ml_moving_average_crossover': MLMovingAverageCrossover,
+        'ml_open_range_breakout': MLOpenRangeBreakout
     }
-    strategy_class = strategies.get(strategy_name.lower())
-    if not strategy_class:
-        raise ValueError(f"Strategy '{strategy_name}' not found.")
-    return strategy_class
+    
+    if strategy_name not in strategies:
+        raise ValueError(f"Strategy '{strategy_name}' not found. Available strategies: {list(strategies.keys())}")
+        
+    return strategies[strategy_name]
+

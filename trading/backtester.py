@@ -1,89 +1,116 @@
 # trading/backtester.py
-
 import backtrader as bt
 import pandas as pd
 import logging
-
-from common.config import config # Grab the INSTANCE named 'config' from within the config.py module 
-from strategies import get_strategy # Import the new factory function
-# from .strategy import MLStrategy
-from strategies.ml_moving_average_crossover import MLMovingAverageCrossover
-# from strategies.rsi_mean_reversion import RsiMeanReversion
-# from data.data_manager import load_dbn_to_df
+from common.config import config
+from strategies import get_strategy
 
 def run_backtest(test_data: pd.DataFrame):
     # --- Logging setup ---
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
     logger = logging.getLogger("Backtester")
-    logger.info("--- Starting Backtest ---")
+    
+    # Data validation logging
+    logger.info(f"Starting backtest with {len(test_data)} rows.")
+    logger.info(f"Columns: {list(test_data.columns)}")
+    logger.info(f"Data types:\n{test_data.dtypes}")
+    nan_counts = test_data.isnull().sum()
+    logger.info(f"NaN counts per column:\n{nan_counts}")
+    logger.info(f"First 5 rows:\n{test_data.head()}\n")
 
     cerebro = bt.Cerebro()
     data_feed = bt.feeds.PandasData(dataname=test_data)
     cerebro.adddata(data_feed)
     
-    # 1. Get the active strategy name from the config
+    # --- Strategy Selection ---
     active_strategy_name = config.active_strategy
-    logger.info(f"Active strategy: {active_strategy_name}")
-
-    # 2. Get the strategy class using the factory
+    logger.info(f"Loading strategy: '{active_strategy_name}'")
     StrategyClass = get_strategy(active_strategy_name)
     
-    # 3. Get the strategy-specific parameters
-    strategy_params = config.get_strategy_params()
-    # The model path needs to be absolute for the strategy to find it
-    strategy_params['model_file_path'] = str(config.get_model_path())
-    logger.info(f"Strategy params: {strategy_params}")
+    # Get strategy configuration and prepare parameters
+    strategy_config = config.get_strategy_config()
     
-    # 4. Add the strategy and unpack its parameters using **
+    # Flatten nested config into parameter dict
+    strategy_params = {}
+    
+    # Add basic parameters that are directly in the strategy config
+    for key, value in strategy_config.items():
+        if not isinstance(value, dict):
+            strategy_params[key] = value
+            
+    # Handle nested parameters (features, model, etc)
+    if 'features' in strategy_config:
+        for key, value in strategy_config['features'].items():
+            strategy_params[key] = value
+            
+    if 'model' in strategy_config:
+        for key, value in strategy_config['model'].items():
+            if key == 'path':
+                strategy_params['model_file_path'] = str(config.get_model_path())
+            else:
+                strategy_params[key] = value
+                
+    if 'risk' in strategy_config:
+        for key, value in strategy_config['risk'].items():
+            strategy_params[key] = value
+            
+    if 'range' in strategy_config:
+        for key, value in strategy_config['range'].items():
+            strategy_params[f'range_{key}'] = value
+    
+    # Add strategy with its flattened parameters
+    logger.info(f"Adding strategy with parameters: {strategy_params}")
     cerebro.addstrategy(StrategyClass, **strategy_params)
     
-    # 5. Use general config settings
-    general_params = config.general
-    cerebro.broker.setcash(general_params['initial_cash'])
+    # --- Broker Setup ---
+    trading_params = config.trading_params
+    cerebro.broker.setcash(trading_params['initial_cash'])
+    cerebro.addsizer(bt.sizers.FixedSize, stake=trading_params['stake_size'])
     
-    # Note: STAKE_SIZE is not in your YAML. It should be.
-    # For now, let's add it to the general section of config.yaml
-    cerebro.addsizer(bt.sizers.FixedSize, stake=general_params.get('stake_size', 1))
-    
+    # Calculate commission from spread points
     price_approx = test_data['close'].mean()
-    commission = general_params['commission_spread_points'] / price_approx
+    commission = trading_params['commission_spread_points'] / price_approx
     cerebro.broker.setcommission(commission=commission)
     
-    # --- The rest of the file is largely the same ---
+    logger.info(f"Broker configured: Cash=${trading_params['initial_cash']:,.2f}, "
+                f"Stake={trading_params['stake_size']}, Commission={commission:.6f}")
+    
+    # --- Analyzers ---
     cerebro.addanalyzer(bt.analyzers.SharpeRatio, _name='sharpe')
     cerebro.addanalyzer(bt.analyzers.DrawDown, _name='drawdown')
     cerebro.addanalyzer(bt.analyzers.Returns, _name='returns')
-
-    print(f'Starting Portfolio Value: {cerebro.broker.getvalue():.2f}')
+    
+    # --- Run Backtest ---
+    logger.info(f'Starting Portfolio Value: {cerebro.broker.getvalue():,.2f}')
     results = cerebro.run()
     
+    # --- Process Results ---
     strat = results[0]
     analysis = strat.analyzers
     
-    # --- FIX: Robustly print analysis results ---
-    print(f'\n--- Backtest Results ---')
-    print(f'Final Portfolio Value: {cerebro.broker.getvalue():.2f}')
+    logger.info('\n--- Backtest Results ---')
+    logger.info(f'Final Portfolio Value: {cerebro.broker.getvalue():,.2f}')
 
-    # Get Sharpe Ratio safely
+    # Get Sharpe Ratio
     sharpe_ratio = analysis.sharpe.get_analysis().get('sharperatio')
     if sharpe_ratio is not None:
-        print(f"Sharpe Ratio: {sharpe_ratio:.2f}")
+        logger.info(f"Sharpe Ratio: {sharpe_ratio:.2f}")
     else:
-        print("Sharpe Ratio: N/A (Not enough data or trades)")
+        logger.info("Sharpe Ratio: N/A (Not enough data or trades)")
 
-    # Get Max Drawdown safely
+    # Get Max Drawdown
     max_drawdown = analysis.drawdown.get_analysis().get('max', {}).get('drawdown')
     if max_drawdown is not None:
-        print(f"Max Drawdown: {max_drawdown:.2f}%")
+        logger.info(f"Max Drawdown: {max_drawdown:.2f}%")
     else:
-        print("Max Drawdown: N/A")
+        logger.info("Max Drawdown: N/A")
 
-    # Get Total Return safely
+    # Get Total Return
     total_return = analysis.returns.get_analysis().get('rtot')
     if total_return is not None:
-        print(f"Total Return: {total_return * 100:.2f}%")
+        logger.info(f"Total Return: {total_return * 100:.2f}%")
     else:
-        print("Total Return: N/A")
-    # --- END OF FIX ---
+        logger.info("Total Return: N/A")
 
-    print("\nPlotting results...")
+    logger.info("\nPlotting results...")
     cerebro.plot(style='candlestick')

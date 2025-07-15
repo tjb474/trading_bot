@@ -40,84 +40,8 @@ We'll design a modular system that clearly separates concerns. The system will h
 
 ----
 
-## 4. Base Template: Code Implementation (Python)
-
-Let's lay out the file structure for our project.
 
 
-
-```
-trading_bot/
-├── config.py                 # API keys and settings (loads from .env)
-├── feature_engineering.py    # Functions to create model features
-├── ml_model.py               # Code to train and predict with the ML model
-├── trading_strategy.py       # The moving average logic
-├── backtester.py             # Script to run backtests
-├── trader.py                 # The main script for live/paper trading
-├── test_data_handler.py      # Script to test data handler and config loading
-├── exploratory.ipynb         # Jupyter notebook for data exploration
-├── IBM_1min_alpha_vantage.csv
-├── IBM_1min_direct_api.csv
-├── profit_model.joblib
-├── README.md
-├── save_data.py
-├── sp500_data.pkl
-├── SPY_1min_full.csv
-├── __pycache__/              # Python bytecode cache
-├── docs/                     # Documentation folder
-├── .env                      # Environment variables (not tracked by git)
-├── .gitignore                # Git ignore file (should include venv/ and .env)
-└── venv/                     # Python virtual environment (ignored by git)
-```
-
-
-**config.py**
-
-Loads all secrets and configurations from the `.env` file using `python-dotenv`. Never commit `.env` to Git.
-
-```
-# config.py
-import os
-from dotenv import load_dotenv
-
-# Explicitly load .env from the current directory (where this file is located)
-dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
-load_dotenv(dotenv_path=dotenv_path, override=True)
-
-# --- IG API Credentials (loaded from .env) ---
-IG_USERNAME = os.getenv("IG_USERNAME")
-IG_PASSWORD = os.getenv("IG_PASSWORD")
-IG_API_KEY = os.getenv("IG_API_KEY")
-IG_ACC_TYPE = os.getenv("IG_ACC_TYPE", "DEMO") # Defaults to DEMO if not set
-
-# --- Trading Strategy Parameters ---
-EPIC = 'IX.D.SPTRD.DAILY.IP'
-STAKE_SIZE = 1
-STOP_DISTANCE = 15
-LIMIT_DISTANCE = 30
-SHORT_WINDOW = 40
-LONG_WINDOW = 100
-
-# --- ML Model Parameters ---
-MODEL_PATH = "profit_model.joblib"
-PROBABILITY_THRESHOLD = 0.60
-```
-
-**feature_engineering.py**
-
-Contains functions to create features for the ML model, such as returns and volatility. You can extend this with more features as needed.
-
-**ml_model.py**
-
-Contains functions for feature engineering, target creation, and model training/prediction. The model is trained offline and saved to disk.
-
-**test_data_handler.py**
-
-Script to verify that your data handler and config loading work as expected. Prints non-sensitive config values and attempts to fetch data from IG.
-
-**exploratory.ipynb**
-
-Jupyter notebook for data exploration, downloading historical data (e.g., with yfinance), and quick prototyping.
 
 **.env**
 
@@ -132,21 +56,6 @@ Should include venv/ and .env to prevent committing secrets and virtual environm
 Python virtual environment directory (ignored by git).
 
 
-**trading_strategy.py**
-
-This contains the pure trading logic, decoupled from execution.
-
-**trader.py (The Live/Paper Bot)**
-
-This script ties everything together for live execution.
-
-# 5. Setting Up Backtesting
-
-For backtesting, backtrader is a robust and popular Python library. It handles a lot of the complexity of simulating a strategy.
-
-**backtester.py**
-
-This script will use backtrader to simulate our full strategy.
 
 
 # 6. Next Steps & Important Considerations
