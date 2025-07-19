@@ -5,7 +5,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import classification_report
 from .base_pipeline import BasePipeline
-from ml.feature_engineering import add_nr4_feature, add_nr7_feature
+from ml.feature_engineering import create_features
 
 def _generate_signals(df: pd.DataFrame, start_time: str, end_time: str) -> pd.DataFrame:
     """
@@ -82,7 +82,9 @@ def _label_trades(signals: pd.DataFrame, df: pd.DataFrame, tp_mult: float, sl_mu
         # Get the day's data up to the signal
         signal_date = pd.to_datetime(signal_time).date()
         day_data = df[pd.to_datetime(df.index).date == signal_date]
-        range_end = pd.to_datetime(signal_time.strftime("%Y-%m-%d ") + "10:00:00")
+        
+        # Create range_end with the same timezone as the DataFrame index
+        range_end = pd.to_datetime(signal_time.strftime("%Y-%m-%d ") + "10:00:00").tz_localize(df.index.tz)
         range_data = day_data[day_data.index <= range_end]
         
         # Calculate range size and price targets
@@ -146,9 +148,13 @@ class OpenRangeBreakoutPipeline(BasePipeline):
         split_ratio = self.config.trading_params['train_test_split_ratio']
         train_df, _ = self.data_manager.split_data(full_df, split_ratio)
 
-        # 3. Add NR4 and NR7 features
-        train_df = add_nr4_feature(train_df)
-        train_df = add_nr7_feature(train_df)
+        # 3. Add all required features using the registry
+        feature_list = self.params['features']['feature_list']
+        feature_params = {
+            'volatility_window': self.params['features'].get('volatility_window', 20),
+            'rsi_window': self.params['features'].get('rsi_window', 14)
+        }
+        train_df = create_features(train_df, feature_list, **feature_params)
         
         # 4. Generate and Label Signals
         range_start = self.params['range']['start']
@@ -159,12 +165,11 @@ class OpenRangeBreakoutPipeline(BasePipeline):
         sl_mult = self.params['risk']['stop_loss_multiplier']
         labeled_signals = _label_trades(signals_df, train_df, tp_mult, sl_mult)
 
-        # 5. Create Features
-        features_df = self.feature_engineering.create_features(train_df)
-        model_data = labeled_signals.join(features_df, how='inner').dropna()
+        # 5. Join features with labeled signals
+        model_data = labeled_signals.join(train_df[feature_list], how='inner').dropna()
 
         # 6. ML Training
-        X = model_data[['returns', 'volatility', 'rsi', 'is_nr4', 'is_nr7']]
+        X = model_data[feature_list]
         y = model_data['target']
         
         if X.empty:
@@ -174,7 +179,7 @@ class OpenRangeBreakoutPipeline(BasePipeline):
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
         
         print(f"\n[INFO] Training on {len(X_train)} signals, testing on {len(X_test)}.")
-        model = RandomForestClassifier(n_estimators=100, random_state=42, class_weight='balanced')
+        model = RandomForestClassifier(n_estimators=1000, random_state=42, class_weight='balanced')
         model.fit(X_train, y_train)
         
         print("\n--- [INFO] Model Evaluation on Hold-Out Test Set ---")
