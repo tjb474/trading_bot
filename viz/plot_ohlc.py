@@ -6,7 +6,28 @@ import os
 import numpy as np
 from ml.feature_engineering import create_features
 
-def plot_ohlc_with_features(file_path, start_date=None, end_date=None):
+def resample_ohlcv(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
+    """
+    Resample OHLCV data to a different timeframe.
+    
+    Args:
+        df: DataFrame with OHLCV data
+        timeframe: Target timeframe (e.g., '1min', '5min', '15min', 'H', 'D')
+        
+    Returns:
+        Resampled DataFrame with OHLCV data
+    """
+    resampled = df.resample(timeframe).agg({
+        'open': 'first',
+        'high': 'max',
+        'low': 'min',
+        'close': 'last',
+        'volume': 'sum'
+    }).dropna()
+    
+    return resampled
+
+def plot_ohlc_with_features(file_path, start_date=None, end_date=None, timeframe='1min'):
     """
     Loads OHLC data and plots it as a candlestick chart with NR4/NR7 markers.
     
@@ -14,6 +35,7 @@ def plot_ohlc_with_features(file_path, start_date=None, end_date=None):
         file_path (str): The path to the CSV or DBN file
         start_date (str, optional): The start date for the plot slice (e.g., '2025-06-09')
         end_date (str, optional): The end date for the plot slice (e.g., '2025-06-11')
+        timeframe (str, optional): Timeframe to display ('1min', '5min', '15min', 'H', 'D')
     """
     print(f"Attempting to load data from: {file_path}")
     try:
@@ -35,7 +57,7 @@ def plot_ohlc_with_features(file_path, start_date=None, end_date=None):
         # Sort and prepare data
         df = df.sort_index()
 
-        # Calculate NR4 and NR7 features
+        # Calculate NR4 and NR7 features on the original 1-minute data
         print("Calculating NR4 and NR7 features...")
         df = create_features(df, feature_list=['is_nr4', 'is_nr7'])
 
@@ -53,6 +75,11 @@ def plot_ohlc_with_features(file_path, start_date=None, end_date=None):
             print("\nError: No data found in the specified date range.")
             print(f"Please check that your data file '{file_path}' contains data between {start_date} and {end_date}.")
             return
+            
+        # Resample data to requested timeframe if different from 1min
+        if timeframe != '1min':
+            print(f"Resampling data to {timeframe} timeframe...")
+            plot_df = resample_ohlcv(plot_df, timeframe)
 
         # Create marker data for NR4 and NR7 signals
         nr4_markers = pd.Series(index=plot_df.index, dtype=float)
@@ -66,12 +93,13 @@ def plot_ohlc_with_features(file_path, start_date=None, end_date=None):
             day_range = day_high - group['low'].min()
             day_start = group.index[0]
             
-            # Place markers at the start of each signal day
-            if first_row['is_nr4'] == 1:
+            # Get signals from the original 1-minute data for this day
+            orig_day_data = df[df.index.date == date]
+            if len(orig_day_data) > 0 and orig_day_data['is_nr4'].iloc[0] == 1:
                 plot_count += 1
                 nr4_markers[day_start] = day_high + day_range * 0.01
             
-            if first_row['is_nr7'] == 1:
+            if len(orig_day_data) > 0 and orig_day_data['is_nr7'].iloc[0] == 1:
                 plot_count += 1
                 nr7_markers[day_start] = day_high + day_range * 0.02
 
@@ -95,7 +123,7 @@ def plot_ohlc_with_features(file_path, start_date=None, end_date=None):
         kwargs = {
             'type': 'candle',
             'style': 'charles',
-            'title': f'\nSPY 1-Minute OHLC Data {title_date_range}\nBlue Triangle = NR4 Day, Red Triangle = NR7 Day',
+            'title': f'\nSPY {timeframe} OHLC Data {title_date_range}\nBlue Triangle = NR4 Day, Red Triangle = NR7 Day',
             'ylabel': 'Price ($)',
             'volume': True,
             'mav': (40, 100),
@@ -190,4 +218,5 @@ if __name__ == '__main__':
     END_PLOT_DATE = '2025-06-13'  # Extended to see more potential NR4/NR7 days
 
     # --- Run the plotting function ---
-    plot_ohlc_with_features(DBN_FILE, start_date=START_PLOT_DATE, end_date=END_PLOT_DATE)
+    # Example: Plot with daily bars
+    plot_ohlc_with_features(DBN_FILE, start_date=START_PLOT_DATE, end_date=END_PLOT_DATE, timeframe='D')
