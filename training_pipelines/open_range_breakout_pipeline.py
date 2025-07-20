@@ -1,3 +1,4 @@
+from pyexpat import model
 import pandas as pd
 import numpy as np
 import joblib
@@ -5,6 +6,7 @@ import logging
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import classification_report
+from imblearn.over_sampling import SMOTE
 from .base_pipeline import BasePipeline
 from ml.feature_engineering import create_features
 
@@ -159,6 +161,8 @@ class OpenRangeBreakoutPipeline(BasePipeline):
         feature_params = {
             'volatility_window': self.params['features'].get('volatility_window', 20),
             'rsi_window': self.params['features'].get('rsi_window', 14),
+            'atr_window': self.params['features'].get('atr_window', 14),
+            'lookback_days': self.params['features'].get('lookback_days', 20),
             'range_start': range_start,
             'range_end': range_end
         }
@@ -188,14 +192,26 @@ class OpenRangeBreakoutPipeline(BasePipeline):
             return
             
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
-        
+        smote = SMOTE(random_state=42)
+        X_train_res, y_train_res = smote.fit_resample(X_train, y_train)
+
         logger.info(f"Training on {len(X_train)} signals, testing on {len(X_test)}.")
         model = RandomForestClassifier(n_estimators=1000, random_state=42, class_weight='balanced')
-        model.fit(X_train, y_train)
+        model.fit(X_train_res, y_train_res)
         
         logger.info("--- Model Evaluation on Hold-Out Test Set ---")
         logger.info("\n" + classification_report(y_test, model.predict(X_test)))
         
+        # Create a pandas series to make it easy to read
+        feature_importances = pd.Series(model.feature_importances_, index=X_train.columns)
+
+        # Sort them in descending order
+        sorted_importances = feature_importances.sort_values(ascending=False)
+
+        logger.info("--- Feature Importances ---")
+        logger.info(f"\n{sorted_importances}")
+
+
         # 8. Save Model
         model_path = self.config.get_model_path('ml_open_range_breakout')
         joblib.dump(model, model_path)

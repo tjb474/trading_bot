@@ -53,12 +53,14 @@ def main():
             timeframe='1min'  # Keep minute-level detail
         )
         
-        print("\n✓ Visualization complete!")
+        print("\n✓ Enhanced Visualization complete!")
         print("\nLegend:")
         print("• Red dashed lines = Opening range high for each day")
         print("• Green dashed lines = Opening range low for each day") 
-        print("• Blue triangles = Breakout signals (price breaks above range high)")
+        print("• Blue triangles ↑ = Bullish breakout signals (price breaks above range high)")
+        print("• Red triangles ↓ = Bearish breakout signals (price breaks below range low)")
         print("• Candlesticks show minute-by-minute price action")
+        print("• Uses breakout_direction feature (same logic as training pipeline)")
         
         print(f"\nStrategy Parameters from config.yaml:")
         print(f"• Opening Range: {RANGE_START} to {RANGE_END}")

@@ -52,8 +52,13 @@ strategies:
     features:
       volatility_window: 20
       rsi_window: 14
-      feature_list: ['returns', 'volatility', 'rsi', 'is_nr4', 'is_nr7']
-    
+      atr_window: 14
+      lookback_days: 20
+      feature_list: ['returns', 'volatility', 'rsi', 'is_nr4', 'is_nr7', 
+                     'breakout_direction', 'or_size_absolute', 'or_size_normalized',
+                     'or_volume', 'or_volume_vs_average', 'or_midpoint_location',
+                     'is_monday', 'is_tuesday', 'is_wednesday', 'is_thursday']
+
     # Model Configuration
     model:
       path: "data/ml_orb_model.joblib"

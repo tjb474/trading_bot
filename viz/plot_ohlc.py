@@ -218,7 +218,7 @@ def plot_ohlc_data(file_path, start_date=None, end_date=None):
 
 
 def plot_open_range_breakout(file_path, start_date=None, end_date=None, 
-                           range_start_time="09:30:00", range_end_time="10:00:00", 
+                           range_start_time="09:30:00", range_end_time="10:15:00", 
                            timeframe='1min'):
     """
     Visualizes OHLC data with opening range bounds for Open Range Breakout analysis.
@@ -226,8 +226,9 @@ def plot_open_range_breakout(file_path, start_date=None, end_date=None,
     This function creates a comprehensive visualization showing:
     - OHLC candlestick chart with volume
     - Opening range boundaries (upper and lower bounds) for each trading day
-    - Breakout signals when price moves above the opening range high
-    - Summary statistics of breakout frequency
+    - Both bullish AND bearish breakout signals using the same logic as training pipeline
+    - Uses the breakout_direction feature for consistent signal detection
+    - Summary statistics of breakout frequency and direction
     
     Args:
         file_path (str): Path to CSV or DBN file containing OHLC data
@@ -239,8 +240,8 @@ def plot_open_range_breakout(file_path, start_date=None, end_date=None,
                                  If None, shows last 2000 data points
         range_start_time (str): Opening range start time in 'HH:MM:SS' format (default: "09:30:00")
                                Typically market open time
-        range_end_time (str): Opening range end time in 'HH:MM:SS' format (default: "10:00:00")
-                             Defines the opening range period (e.g., first 30 minutes)
+        range_end_time (str): Opening range end time in 'HH:MM:SS' format (default: "10:15:00")
+                             Defines the opening range period (e.g., first 45 minutes)
         timeframe (str): Data timeframe to display - '1min', '5min', '15min', '1H', 'D'
                         Note: Original data resolution should match or be higher than requested timeframe
     
@@ -251,23 +252,24 @@ def plot_open_range_breakout(file_path, start_date=None, end_date=None,
         - Green/Red Candlesticks: Price action (green=bullish, red=bearish)
         - Red Dashed Lines: Opening range HIGH for each trading day
         - Green Dashed Lines: Opening range LOW for each trading day  
-        - Blue Triangle Markers: Breakout signals (first close above range high after range period)
+        - Blue Triangle Up: Bullish breakout signals (close above range high after range period)
+        - Red Triangle Down: Bearish breakout signals (close below range low after range period)
         - Volume Bars: Trading volume subplot
         - Title: Shows date range, range times, and legend
     
     Console Output:
         - Loading progress and data validation messages
         - Count of trading days and opening ranges found
-        - Count of breakout signals detected
-        - Breakout success rate percentage
+        - Count of bullish and bearish breakout signals detected
+        - Breakout success rate percentage by direction
     
     Usage Examples:
         # Basic usage with date range
         plot_open_range_breakout('data/SPY_1min.csv', '2024-01-08', '2024-01-12')
         
-        # Custom opening range (first 15 minutes)
+        # Custom opening range (first 45 minutes - matches training pipeline)
         plot_open_range_breakout('data/SPY_1min.csv', '2024-01-08', '2024-01-12',
-                               range_start_time="09:30:00", range_end_time="09:45:00")
+                               range_start_time="09:30:00", range_end_time="10:15:00")
         
         # Different timeframe (5-minute bars)
         plot_open_range_breakout('data/SPY_1min.csv', '2024-01-08', '2024-01-12',
@@ -284,11 +286,14 @@ def plot_open_range_breakout(file_path, start_date=None, end_date=None,
         - mplfinance: Candlestick charting
         - matplotlib: Plotting backend
         - databento (optional): For .dbn file support
+        - ml.feature_engineering: For breakout_direction feature
     
     Notes:
+        - Uses the same breakout detection logic as the training pipeline
+        - Leverages the breakout_direction feature for consistent signal detection
         - Data should be in ascending chronological order
         - Function automatically filters for market hours based on range times
-        - Breakout detection looks for first close above range high after range period ends
+        - Only the first breakout per day is shown (no reversals)
         - Large datasets are automatically handled with warnings for performance
         - Opening ranges are calculated separately for each trading day
         - Weekend/holiday gaps are handled automatically
@@ -299,7 +304,7 @@ def plot_open_range_breakout(file_path, start_date=None, end_date=None,
         ValueError: If date formats are invalid or data is empty
         KeyError: If required OHLC columns are missing from data
     """
-    logger.info(f"Creating Open Range Breakout visualization from: {file_path}")
+    logger.info(f"Creating Enhanced Open Range Breakout visualization from: {file_path}")
     
     try:
         # Load data
@@ -340,8 +345,14 @@ def plot_open_range_breakout(file_path, start_date=None, end_date=None,
             logger.info(f"Resampling data to {timeframe}...")
             plot_df = resample_ohlcv(plot_df, timeframe)
 
-        # Calculate opening ranges for each day
-        logger.info("Calculating opening ranges...")
+        # Add breakout_direction feature using the same logic as training pipeline
+        logger.info("Calculating breakout direction feature...")
+        plot_df = create_features(plot_df, ['breakout_direction'], 
+                                range_start=range_start_time, 
+                                range_end=range_end_time)
+
+        # Calculate opening ranges for visualization bounds
+        logger.info("Calculating opening range bounds for visualization...")
         
         # Convert time strings to time objects
         range_start = pd.to_datetime(range_start_time).time()
@@ -350,11 +361,13 @@ def plot_open_range_breakout(file_path, start_date=None, end_date=None,
         # Create series to hold range bounds
         upper_bounds = pd.Series(index=plot_df.index, dtype=float)
         lower_bounds = pd.Series(index=plot_df.index, dtype=float)
-        breakout_signals = pd.Series(index=plot_df.index, dtype=float)
+        bullish_signals = pd.Series(index=plot_df.index, dtype=float)
+        bearish_signals = pd.Series(index=plot_df.index, dtype=float)
         
-        # Process each trading day
+        # Process each trading day for visualization bounds
         range_count = 0
-        breakout_count = 0
+        bullish_breakout_count = 0
+        bearish_breakout_count = 0
         
         for date, day_data in plot_df.groupby(plot_df.index.date):
             # Get opening range data for this day
@@ -374,22 +387,31 @@ def plot_open_range_breakout(file_path, start_date=None, end_date=None,
             day_mask = plot_df.index.date == date
             upper_bounds.loc[day_mask] = range_high
             lower_bounds.loc[day_mask] = range_low
+        
+        # Extract breakout signals from the breakout_direction feature
+        logger.info("Extracting breakout signals from breakout_direction feature...")
+        
+        # Find breakout transitions (where direction changes from 0 to 1 or -1)
+        breakout_mask = (plot_df['breakout_direction'] != 0) & (plot_df['breakout_direction'].shift(1) == 0)
+        
+        if breakout_mask.any():
+            breakout_points = plot_df[breakout_mask].copy()
             
-            # Detect breakouts (price closes above range high after range period)
-            post_range_mask = day_mask & (pd.to_datetime(plot_df.index).time >= range_end)
-            post_range_data = plot_df[post_range_mask]
-            
-            if len(post_range_data) > 0:
-                breakout_mask = post_range_data['close'] > range_high
-                if breakout_mask.any():
-                    # Mark first breakout of the day
-                    first_breakout_idx = post_range_data[breakout_mask].index[0]
-                    breakout_price = plot_df.loc[first_breakout_idx, 'close']
-                    breakout_signals.loc[first_breakout_idx] = breakout_price + (breakout_price * 0.001)  # Slightly above for visibility
-                    breakout_count += 1
+            # Separate bullish and bearish breakouts
+            for idx in breakout_points.index:
+                direction = plot_df.loc[idx, 'breakout_direction']
+                price = plot_df.loc[idx, 'close']
+                
+                if direction == 1:  # Bullish breakout
+                    bullish_signals.loc[idx] = price + (price * 0.002)  # Slightly above for visibility
+                    bullish_breakout_count += 1
+                elif direction == -1:  # Bearish breakout
+                    bearish_signals.loc[idx] = price - (price * 0.002)  # Slightly below for visibility
+                    bearish_breakout_count += 1
 
+        total_breakouts = bullish_breakout_count + bearish_breakout_count
         logger.info(f"Found {range_count} trading days with opening ranges")
-        logger.info(f"Detected {breakout_count} breakout signals")
+        logger.info(f"Detected {total_breakouts} breakout signals ({bullish_breakout_count} bullish, {bearish_breakout_count} bearish)")
 
         # Create addplot objects
         ap = []
@@ -397,24 +419,45 @@ def plot_open_range_breakout(file_path, start_date=None, end_date=None,
         # Add upper bounds line
         if upper_bounds.notna().any():
             ap.append(mpf.make_addplot(upper_bounds, type='line', color='red', 
-                                     width=1, linestyle='--', alpha=0.8, label='Range High'))
+                                     width=2, linestyle='--', alpha=0.8))
         
         # Add lower bounds line  
         if lower_bounds.notna().any():
             ap.append(mpf.make_addplot(lower_bounds, type='line', color='green', 
-                                     width=1, linestyle='--', alpha=0.8, label='Range Low'))
+                                     width=2, linestyle='--', alpha=0.8))
         
-        # Add breakout signals
-        if breakout_signals.notna().any():
-            ap.append(mpf.make_addplot(breakout_signals, type='scatter', marker='^', 
-                                     markersize=60, color='blue', alpha=0.8, label='Breakout Signal'))
+        # Add bullish breakout signals (blue triangles up)
+        if bullish_signals.notna().any():
+            ap.append(mpf.make_addplot(bullish_signals, type='scatter', marker='^', 
+                                     markersize=80, color='blue', alpha=0.9))
+        
+        # Add bearish breakout signals (red triangles down)
+        if bearish_signals.notna().any():
+            ap.append(mpf.make_addplot(bearish_signals, type='scatter', marker='v', 
+                                     markersize=80, color='red', alpha=0.9))
+        
+        # Add lower bounds line  
+        if lower_bounds.notna().any():
+            ap.append(mpf.make_addplot(lower_bounds, type='line', color='green', 
+                                     width=2, linestyle='--', alpha=0.8))
+        
+        # Add bullish breakout signals (blue triangles up)
+        if bullish_signals.notna().any():
+            ap.append(mpf.make_addplot(bullish_signals, type='scatter', marker='^', 
+                                     markersize=80, color='blue', alpha=0.9))
+        
+        # Add bearish breakout signals (red triangles down)
+        if bearish_signals.notna().any():
+            ap.append(mpf.make_addplot(bearish_signals, type='scatter', marker='v', 
+                                     markersize=80, color='red', alpha=0.9))
 
         # Create the plot
-        logger.info("Generating Open Range Breakout visualization...")
+        logger.info("Generating Enhanced Open Range Breakout visualization...")
         
-        title = (f'Open Range Breakout Analysis {title_date_range}\n'
+        title = (f'Enhanced Open Range Breakout Analysis {title_date_range}\n'
                 f'Range: {range_start_time} to {range_end_time} | '
-                f'Red Dashed = Range High, Green Dashed = Range Low, Blue Triangles = Breakouts')
+                f'Red Dashed = Range High, Green Dashed = Range Low\n'
+                f'Blue Triangles ↑ = Bullish Breakouts, Red Triangles ↓ = Bearish Breakouts')
         
         kwargs = {
             'type': 'candle',
@@ -422,7 +465,7 @@ def plot_open_range_breakout(file_path, start_date=None, end_date=None,
             'title': title,
             'ylabel': 'Price ($)',
             'volume': True,
-            'figsize': (20, 12),
+            'figsize': (20, 14),
             'panel_ratios': (4, 1),
             'warn_too_much_data': 100000,
         }
@@ -432,14 +475,21 @@ def plot_open_range_breakout(file_path, start_date=None, end_date=None,
             
         mpf.plot(plot_df, **kwargs)
         
-        # Print summary statistics
-        logger.info(f"\n--- Open Range Breakout Analysis Summary ---")
+        # Print enhanced summary statistics
+        logger.info(f"\n--- Enhanced Open Range Breakout Analysis Summary ---")
         logger.info(f"Date Range: {title_date_range}")
         logger.info(f"Opening Range Time: {range_start_time} to {range_end_time}")
         logger.info(f"Total Trading Days: {range_count}")
-        logger.info(f"Breakout Signals: {breakout_count}")
+        logger.info(f"Total Breakout Signals: {total_breakouts}")
+        logger.info(f"  • Bullish Breakouts: {bullish_breakout_count}")
+        logger.info(f"  • Bearish Breakouts: {bearish_breakout_count}")
         if range_count > 0:
-            logger.info(f"Breakout Rate: {breakout_count/range_count:.1%}")
+            logger.info(f"Overall Breakout Rate: {total_breakouts/range_count:.1%}")
+            if bullish_breakout_count > 0:
+                logger.info(f"Bullish Breakout Rate: {bullish_breakout_count/range_count:.1%}")
+            if bearish_breakout_count > 0:
+                logger.info(f"Bearish Breakout Rate: {bearish_breakout_count/range_count:.1%}")
+        logger.info(f"Integration: Using breakout_direction feature (same as training pipeline)")
 
     except FileNotFoundError:
         logger.error(f"Error: The file '{file_path}' was not found.")

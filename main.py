@@ -81,7 +81,9 @@ def run_backtesting():
         feature_list = feature_config.get('feature_list', [])
         feature_params = {
             'volatility_window': feature_config.get('volatility_window', 20),
-            'rsi_window': feature_config.get('rsi_window', 14)
+            'rsi_window': feature_config.get('rsi_window', 14),
+            'atr_window': feature_config.get('atr_window', 14),
+            'lookback_days': feature_config.get('lookback_days', 20)
         }
         
         # Add all features in one go using the registry

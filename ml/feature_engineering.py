@@ -167,6 +167,63 @@ def create_features(df: pd.DataFrame, feature_list: Optional[List[str]] = None, 
 # Create global registry instance
 registry = FeatureRegistry()
 
+@registry.register('day_of_week')
+def add_day_of_week_feature(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Add day of the week as categorical features (one-hot encoded).
+    
+    Creates binary features for each trading day of the week (avoiding dummy trap):
+    - is_monday: 1 if Monday, 0 otherwise
+    - is_tuesday: 1 if Tuesday, 0 otherwise  
+    - is_wednesday: 1 if Wednesday, 0 otherwise
+    - is_thursday: 1 if Thursday, 0 otherwise
+    
+    Note: Friday is omitted to avoid the dummy variable trap. When all other days 
+    are 0, it implicitly represents Friday. This prevents perfect multicollinearity
+    in linear models while preserving all information.
+    
+    This helps capture day-of-week effects in trading patterns, such as:
+    - Monday reversals after weekend news
+    - Friday profit-taking (captured when other days = 0)
+    - Mid-week momentum patterns
+    
+    Returns:
+        DataFrame with day-of-week categorical features added
+    """
+    logger.info("Adding day of week categorical features (avoiding dummy trap)...")
+    
+    df = df.copy()
+    
+    # Get day of week (0=Monday, 1=Tuesday, ..., 4=Friday)
+    df['weekday'] = df.index.dayofweek
+    
+    # Create one-hot encoded features for each trading day (except Friday to avoid dummy trap)
+    df['is_monday'] = (df['weekday'] == 0).astype(int)
+    df['is_tuesday'] = (df['weekday'] == 1).astype(int) 
+    df['is_wednesday'] = (df['weekday'] == 2).astype(int)
+    df['is_thursday'] = (df['weekday'] == 3).astype(int)
+    # Friday omitted: when all others are 0, it's implicitly Friday
+    
+    # Clean up temporary column
+    df = df.drop('weekday', axis=1)
+    
+    # Count trading days for each day of week
+    day_counts = {
+        'Monday': df['is_monday'].sum(),
+        'Tuesday': df['is_tuesday'].sum(),
+        'Wednesday': df['is_wednesday'].sum(), 
+        'Thursday': df['is_thursday'].sum(),
+        'Friday': len(df[df.index.dayofweek == 4])  # Friday count (implicit)
+    }
+    
+    # Convert to daily counts (assuming ~390 bars per day)
+    daily_counts = {day: int(count / 390) if count > 0 else 0 
+                   for day, count in day_counts.items()}
+    
+    logger.info(f"Day of week features added (Friday implicit). Trading days: {daily_counts}")
+    
+    return df
+
 # Register basic features with docstrings explaining their purpose and parameters
 @registry.register('returns')
 def add_returns_feature(df: pd.DataFrame) -> pd.DataFrame:
@@ -372,10 +429,362 @@ def add_breakout_direction_feature(df: pd.DataFrame, range_start: str = '09:30:0
     # Clean up temporary columns
     df = df.drop(['time', 'date'], axis=1)
     
-    logger.debug("Breakout direction DataFrame sample:\n%s", df.head(50))
+    # Debug: Show daily breakout signals for easier analysis
+    daily_breakout = df[df['breakout_direction'] != 0].resample('D').agg({
+        'open': 'first',
+        'high': 'max', 
+        'low': 'min',
+        'close': 'last',
+        'breakout_direction': 'first'  # First (and only) breakout direction of the day
+    }).dropna()
+    logger.debug("Daily breakout signals:\n%s", daily_breakout.head(50))
     
     total_breakouts = breakout_count['bullish'] + breakout_count['bearish']
     logger.info(f"Breakout direction feature calculated. Found {total_breakouts} breakouts "
                f"({breakout_count['bullish']} bullish, {breakout_count['bearish']} bearish).")
+    
+    return df
+
+@registry.register('or_size_absolute', range_start='09:30:00', range_end='10:15:00')
+def add_or_size_absolute_feature(df: pd.DataFrame, range_start: str = '09:30:00', range_end: str = '10:15:00') -> pd.DataFrame:
+    """
+    Add Opening Range size in absolute price terms (OR High - OR Low).
+    
+    IMPORTANT: No lookahead bias - OR size is only available AFTER the range period ends.
+    During the range formation (09:30-10:15), this feature is 0.
+    After range ends, it shows the completed OR size.
+    
+    Args:
+        range_start: Start time of the opening range (e.g., "09:30:00")
+        range_end: End time of the opening range (e.g., "10:15:00")
+    
+    Returns:
+        DataFrame with 'or_size_absolute' column added
+    """
+    logger.info(f"Calculating OR absolute size feature (range: {range_start} to {range_end})...")
+    
+    df = df.copy()
+    df['or_size_absolute'] = 0.0
+    
+    # Convert time strings to time objects
+    range_start_time = pd.to_datetime(range_start).time()
+    range_end_time = pd.to_datetime(range_end).time()
+    
+    # Add time and date columns for processing
+    df['time'] = pd.to_datetime(df.index).time
+    df['date'] = pd.to_datetime(df.index).date
+    
+    # Process each trading day
+    for date in df['date'].unique():
+        day_mask = df['date'] == date
+        day_data = df[day_mask]
+        
+        # Get opening range data
+        range_mask = (day_data['time'] >= range_start_time) & (day_data['time'] < range_end_time)
+        range_data = day_data[range_mask]
+        
+        if len(range_data) > 0:
+            or_high = range_data['high'].max()
+            or_low = range_data['low'].min()
+            or_size = or_high - or_low
+            
+            # CRITICAL: Only fill AFTER the range period ends (no lookahead bias)
+            post_range_mask = day_mask & (df['time'] >= range_end_time)
+            df.loc[post_range_mask, 'or_size_absolute'] = or_size
+    
+    # Clean up temporary columns
+    df = df.drop(['time', 'date'], axis=1)
+    
+    avg_or_size = df[df['or_size_absolute'] > 0]['or_size_absolute'].mean()
+    logger.info(f"OR absolute size calculated. Average OR size: ${avg_or_size:.2f}")
+    
+    return df
+
+@registry.register('or_size_normalized', dependencies=['or_size_absolute'], range_start='09:30:00', range_end='10:15:00', atr_window=14)
+def add_or_size_normalized_feature(df: pd.DataFrame, range_start: str = '09:30:00', range_end: str = '10:15:00', atr_window: int = 14) -> pd.DataFrame:
+    """
+    Add Opening Range size normalized by Average True Range (OR Size / ATR).
+    
+    IMPORTANT: No lookahead bias - uses ATR from PREVIOUS days only.
+    The ATR calculation excludes the current day to avoid lookahead bias.
+    
+    Args:
+        range_start: Start time of the opening range (e.g., "09:30:00") 
+        range_end: End time of the opening range (e.g., "10:15:00")
+        atr_window: Window for ATR calculation (default: 14)
+    
+    Dependencies:
+        - or_size_absolute: Requires absolute OR size to be calculated first
+    
+    Returns:
+        DataFrame with 'or_size_normalized' column added
+    """
+    logger.info(f"Calculating OR normalized size feature (ATR window: {atr_window})...")
+    
+    df = df.copy()
+    
+    # Calculate daily OHLC first
+    daily_df = df.resample('D').agg({
+        'open': 'first',
+        'high': 'max',
+        'low': 'min', 
+        'close': 'last',
+        'or_size_absolute': 'first'  # Take first value since it's the same for the whole day
+    }).dropna()
+    
+    # Calculate True Range components
+    daily_df['tr1'] = daily_df['high'] - daily_df['low']
+    daily_df['tr2'] = abs(daily_df['high'] - daily_df['close'].shift(1))
+    daily_df['tr3'] = abs(daily_df['low'] - daily_df['close'].shift(1))
+    daily_df['true_range'] = daily_df[['tr1', 'tr2', 'tr3']].max(axis=1)
+    
+    # CRITICAL: Calculate ATR using PREVIOUS days only (shift forward to avoid lookahead)
+    daily_df['atr'] = daily_df['true_range'].shift(1).rolling(window=atr_window).mean()
+    
+    # Calculate normalized OR size (using yesterday's ATR)
+    daily_df['or_size_normalized'] = daily_df['or_size_absolute'] / daily_df['atr']
+    
+    # Map back to minute data
+    normalized_signal = daily_df[['or_size_normalized']].reindex(df.index, method='ffill').fillna(0)
+    df = df.join(normalized_signal)
+    
+    # Only calculate average for non-zero values
+    valid_normalized = df[df['or_size_normalized'] > 0]['or_size_normalized']
+    if len(valid_normalized) > 0:
+        avg_normalized = valid_normalized.mean()
+        logger.info(f"OR normalized size calculated. Average normalized OR size: {avg_normalized:.2f}")
+    else:
+        logger.info("OR normalized size calculated. No valid normalized values yet.")
+    
+    return df
+
+@registry.register('or_volume', range_start='09:30:00', range_end='10:15:00')
+def add_or_volume_feature(df: pd.DataFrame, range_start: str = '09:30:00', range_end: str = '10:15:00') -> pd.DataFrame:
+    """
+    Add Opening Range total volume feature.
+    
+    Total volume traded during the opening range formation. High volume can suggest
+    stronger conviction behind the eventual breakout.
+    
+    Args:
+        range_start: Start time of the opening range (e.g., "09:30:00")
+        range_end: End time of the opening range (e.g., "10:15:00")
+    
+    Returns:
+        DataFrame with 'or_volume' column added
+    """
+    logger.info(f"Calculating OR volume feature (range: {range_start} to {range_end})...")
+    
+    df = df.copy()
+    df['or_volume'] = 0.0
+    
+    # Convert time strings to time objects
+    range_start_time = pd.to_datetime(range_start).time()
+    range_end_time = pd.to_datetime(range_end).time()
+    
+    # Add time and date columns for processing
+    df['time'] = pd.to_datetime(df.index).time
+    df['date'] = pd.to_datetime(df.index).date
+    
+    # Process each trading day
+    for date in df['date'].unique():
+        day_mask = df['date'] == date
+        day_data = df[day_mask]
+        
+        # Get opening range data
+        range_mask = (day_data['time'] >= range_start_time) & (day_data['time'] < range_end_time)
+        range_data = day_data[range_mask]
+        
+        if len(range_data) > 0:
+            or_total_volume = range_data['volume'].sum()
+            
+            # CRITICAL: Only populate AFTER the opening range ends (no lookahead bias)
+            post_range_mask = day_data['time'] > range_end_time
+            
+            # Only set the feature for bars AFTER the opening range completes
+            df.loc[day_data.index[post_range_mask], 'or_volume'] = or_total_volume
+    
+    # Clean up temporary columns
+    df = df.drop(['time', 'date'], axis=1)
+    
+    valid_volume = df[df['or_volume'] > 0]['or_volume']
+    if len(valid_volume) > 0:
+        avg_or_volume = valid_volume.mean()
+        logger.info(f"OR volume calculated. Average OR volume: {avg_or_volume:,.0f}")
+    else:
+        logger.info("OR volume calculated. No completed ranges found yet.")
+    
+    return df
+
+@registry.register('or_volume_vs_average', dependencies=['or_volume'], range_start='09:30:00', range_end='10:15:00', lookback_days=20)
+def add_or_volume_vs_average_feature(df: pd.DataFrame, range_start: str = '09:30:00', range_end: str = '10:15:00', lookback_days: int = 20) -> pd.DataFrame:
+    """
+    Add Opening Range volume relative to historical average (OR Volume / Average OR Volume).
+    
+    IMPORTANT: No lookahead bias - uses PREVIOUS days only for average calculation.
+    The historical average excludes the current day to avoid lookahead bias.
+    
+    Args:
+        range_start: Start time of the opening range (e.g., "09:30:00")
+        range_end: End time of the opening range (e.g., "10:15:00") 
+        lookback_days: Number of days to use for average calculation (default: 20)
+    
+    Dependencies:
+        - or_volume: Requires OR volume to be calculated first
+    
+    Returns:
+        DataFrame with 'or_volume_vs_average' column added
+    """
+    logger.info(f"Calculating OR volume vs average feature (lookback: {lookback_days} days)...")
+    
+    df = df.copy()
+    
+    # Get daily OR volumes
+    daily_df = df.resample('D').agg({
+        'open': 'first',
+        'high': 'max',
+        'low': 'min',
+        'close': 'last',
+        'or_volume': 'first'  # Take first value since it's the same for the whole day
+    }).dropna()
+    
+    # CRITICAL: Calculate rolling average using PREVIOUS days only (shift forward to avoid lookahead)
+    daily_df['or_volume_avg'] = daily_df['or_volume'].shift(1).rolling(window=lookback_days).mean()
+    
+    # Calculate ratio (current OR volume vs historical average)
+    daily_df['or_volume_vs_average'] = daily_df['or_volume'] / daily_df['or_volume_avg']
+    
+    # Map back to minute data
+    volume_ratio_signal = daily_df[['or_volume_vs_average']].reindex(df.index, method='ffill').fillna(1.0)
+    df = df.join(volume_ratio_signal)
+    
+    valid_ratios = df[df['or_volume_vs_average'] != 1.0]['or_volume_vs_average']
+    if len(valid_ratios) > 0:
+        avg_ratio = valid_ratios.mean()
+        logger.info(f"OR volume vs average calculated. Average ratio: {avg_ratio:.2f}")
+    else:
+        logger.info("OR volume vs average calculated. No completed ranges found yet.")
+    
+    return df
+
+@registry.register('or_midpoint_location', range_start='09:30:00', range_end='10:15:00')
+def add_or_midpoint_location_feature(df: pd.DataFrame, range_start: str = '09:30:00', range_end: str = '10:15:00') -> pd.DataFrame:
+    """
+    Add Opening Range midpoint location relative to previous day's close.
+    
+    This feature shows where the initial balance area is forming relative to
+    yesterday's settlement. Formula: (OR High + OR Low) / 2 - Previous Close
+    
+    Args:
+        range_start: Start time of the opening range (e.g., "09:30:00")
+        range_end: End time of the opening range (e.g., "10:15:00")
+    
+    Returns:
+        DataFrame with 'or_midpoint_location' column added
+    """
+    logger.info(f"Calculating OR midpoint location feature (range: {range_start} to {range_end})...")
+    
+    df = df.copy()
+    df['or_midpoint_location'] = 0.0
+    
+    # Convert time strings to time objects
+    range_start_time = pd.to_datetime(range_start).time()
+    range_end_time = pd.to_datetime(range_end).time()
+    
+    # Add time and date columns for processing
+    df['time'] = pd.to_datetime(df.index).time
+    df['date'] = pd.to_datetime(df.index).date
+    
+    # Get daily close prices for reference
+    daily_df = df.resample('D').agg({
+        'close': 'last'
+    }).dropna()
+    daily_df['prev_close'] = daily_df['close'].shift(1)
+    
+    # Process each trading day
+    for date in df['date'].unique():
+        day_mask = df['date'] == date
+        day_data = df[day_mask]
+        
+        # Get opening range data
+        range_mask = (day_data['time'] >= range_start_time) & (day_data['time'] < range_end_time)
+        range_data = day_data[range_mask]
+        
+        if len(range_data) > 0:
+            or_high = range_data['high'].max()
+            or_low = range_data['low'].min()
+            or_midpoint = (or_high + or_low) / 2
+@registry.register('or_midpoint_location', range_start='09:30:00', range_end='10:15:00')
+def add_or_midpoint_location_feature(df: pd.DataFrame, range_start: str = '09:30:00', range_end: str = '10:15:00') -> pd.DataFrame:
+    """
+    Add Opening Range midpoint location relative to previous day's close.
+    
+    IMPORTANT: No lookahead bias - midpoint is only available AFTER the opening range completes.
+    The feature shows where the initial balance area formed relative to yesterday's settlement,
+    but only becomes available at the end of the range period.
+    
+    Args:
+        range_start: Start time of the opening range (e.g., "09:30:00")
+        range_end: End time of the opening range (e.g., "10:15:00")
+    
+    Returns:
+        DataFrame with 'or_midpoint_location' column added
+    """
+    logger.info(f"Calculating OR midpoint location feature (range: {range_start} to {range_end})...")
+    
+    df = df.copy()
+    df['or_midpoint_location'] = 0.0
+    
+    # Convert time strings to time objects
+    range_start_time = pd.to_datetime(range_start).time()
+    range_end_time = pd.to_datetime(range_end).time()
+    
+    # Add time and date columns for processing
+    df['time'] = pd.to_datetime(df.index).time
+    df['date'] = pd.to_datetime(df.index).date
+    
+    # Get daily close prices for reference
+    daily_df = df.resample('D').agg({
+        'close': 'last'
+    }).dropna()
+    daily_df['prev_close'] = daily_df['close'].shift(1)
+    
+    # Process each trading day
+    for date in df['date'].unique():
+        day_mask = df['date'] == date
+        day_data = df[day_mask]
+        
+        # Get opening range data
+        range_mask = (day_data['time'] >= range_start_time) & (day_data['time'] < range_end_time)
+        range_data = day_data[range_mask]
+        
+        if len(range_data) > 0:
+            or_high = range_data['high'].max()
+            or_low = range_data['low'].min()
+            or_midpoint = (or_high + or_low) / 2
+            
+            # Get previous day's close
+            date_str = pd.Timestamp(date).strftime('%Y-%m-%d')
+            if date_str in daily_df.index:
+                prev_close = daily_df.loc[date_str, 'prev_close']
+                
+                if pd.notna(prev_close):
+                    midpoint_location = or_midpoint - prev_close
+                    
+                    # CRITICAL: Only populate AFTER the opening range ends (no lookahead bias)
+                    post_range_mask = day_data['time'] > range_end_time
+                    
+                    # Only set the feature for bars AFTER the opening range completes
+                    df.loc[day_data.index[post_range_mask], 'or_midpoint_location'] = midpoint_location
+    
+    # Clean up temporary columns
+    df = df.drop(['time', 'date'], axis=1)
+    
+    valid_locations = df[df['or_midpoint_location'] != 0.0]['or_midpoint_location']
+    if len(valid_locations) > 0:
+        avg_midpoint_location = valid_locations.mean()
+        logger.info(f"OR midpoint location calculated. Average location: ${avg_midpoint_location:.2f}")
+    else:
+        logger.info("OR midpoint location calculated. No completed ranges found yet.")
     
     return df
