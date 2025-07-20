@@ -126,7 +126,7 @@ def _label_trades(signals: pd.DataFrame, df: pd.DataFrame, tp_mult: float, sl_mu
     
     signals['target'] = labels
     logger.info("\n--- Target Label Distribution ---")
-    logger.info(signals['target'].value_counts(normalize=True))
+    logger.info(signals['target'].value_counts(normalize=True).to_frame(name='Proportion').assign(Count=signals['target'].value_counts()))
     return signals
 
 

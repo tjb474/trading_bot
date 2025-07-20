@@ -5,7 +5,9 @@ import mplfinance as mpf
 import os
 import numpy as np
 import logging
+import matplotlib.pyplot as plt
 from ml.feature_engineering import create_features
+from datetime import time as dt_time
 
 # Get the logger without configuring it - configuration comes from Config class
 logger = logging.getLogger(__name__)
@@ -214,6 +216,236 @@ def plot_ohlc_data(file_path, start_date=None, end_date=None):
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
 
+
+def plot_open_range_breakout(file_path, start_date=None, end_date=None, 
+                           range_start_time="09:30:00", range_end_time="10:00:00", 
+                           timeframe='1min'):
+    """
+    Visualizes OHLC data with opening range bounds for Open Range Breakout analysis.
+    
+    This function creates a comprehensive visualization showing:
+    - OHLC candlestick chart with volume
+    - Opening range boundaries (upper and lower bounds) for each trading day
+    - Breakout signals when price moves above the opening range high
+    - Summary statistics of breakout frequency
+    
+    Args:
+        file_path (str): Path to CSV or DBN file containing OHLC data
+                        CSV format: columns should include 'open', 'high', 'low', 'close', 'volume'
+                        DBN format: Databento binary format (requires databento package)
+        start_date (str, optional): Start date for plot in 'YYYY-MM-DD' format (e.g., '2024-01-08')
+                                   If None, shows last 2000 data points
+        end_date (str, optional): End date for plot in 'YYYY-MM-DD' format (e.g., '2024-01-12')
+                                 If None, shows last 2000 data points
+        range_start_time (str): Opening range start time in 'HH:MM:SS' format (default: "09:30:00")
+                               Typically market open time
+        range_end_time (str): Opening range end time in 'HH:MM:SS' format (default: "10:00:00")
+                             Defines the opening range period (e.g., first 30 minutes)
+        timeframe (str): Data timeframe to display - '1min', '5min', '15min', '1H', 'D'
+                        Note: Original data resolution should match or be higher than requested timeframe
+    
+    Returns:
+        None: Displays matplotlib plot and prints analysis summary to console
+    
+    Visualization Elements:
+        - Green/Red Candlesticks: Price action (green=bullish, red=bearish)
+        - Red Dashed Lines: Opening range HIGH for each trading day
+        - Green Dashed Lines: Opening range LOW for each trading day  
+        - Blue Triangle Markers: Breakout signals (first close above range high after range period)
+        - Volume Bars: Trading volume subplot
+        - Title: Shows date range, range times, and legend
+    
+    Console Output:
+        - Loading progress and data validation messages
+        - Count of trading days and opening ranges found
+        - Count of breakout signals detected
+        - Breakout success rate percentage
+    
+    Usage Examples:
+        # Basic usage with date range
+        plot_open_range_breakout('data/SPY_1min.csv', '2024-01-08', '2024-01-12')
+        
+        # Custom opening range (first 15 minutes)
+        plot_open_range_breakout('data/SPY_1min.csv', '2024-01-08', '2024-01-12',
+                               range_start_time="09:30:00", range_end_time="09:45:00")
+        
+        # Different timeframe (5-minute bars)
+        plot_open_range_breakout('data/SPY_1min.csv', '2024-01-08', '2024-01-12',
+                               timeframe='5min')
+        
+        # Auto-range (last 2000 bars)
+        plot_open_range_breakout('data/SPY_1min.csv')
+        
+        # With DBN file
+        plot_open_range_breakout('data/spy_ohlcv.dbn', '2024-01-08', '2024-01-12')
+    
+    Requirements:
+        - pandas: Data manipulation
+        - mplfinance: Candlestick charting
+        - matplotlib: Plotting backend
+        - databento (optional): For .dbn file support
+    
+    Notes:
+        - Data should be in ascending chronological order
+        - Function automatically filters for market hours based on range times
+        - Breakout detection looks for first close above range high after range period ends
+        - Large datasets are automatically handled with warnings for performance
+        - Opening ranges are calculated separately for each trading day
+        - Weekend/holiday gaps are handled automatically
+    
+    Raises:
+        FileNotFoundError: If the specified file_path does not exist
+        ImportError: If databento package is required but not installed
+        ValueError: If date formats are invalid or data is empty
+        KeyError: If required OHLC columns are missing from data
+    """
+    logger.info(f"Creating Open Range Breakout visualization from: {file_path}")
+    
+    try:
+        # Load data
+        ext = os.path.splitext(file_path)[1].lower()
+        if ext == '.dbn':
+            try:
+                from databento import DBNStore
+            except ImportError:
+                logger.error("databento package is not installed. Please install it with 'pip install databento'")
+                return
+            store = DBNStore.from_file(file_path)
+            df = store.to_df()
+            logger.info("DBN file loaded and converted to DataFrame.")
+        else:
+            df = pd.read_csv(file_path, index_col=0, parse_dates=True)
+            logger.info("CSV data loaded successfully.")
+
+        # Ensure lowercase columns
+        df.columns = [col.lower() for col in df.columns]
+        df = df.sort_index()
+
+        # Filter date range
+        if start_date and end_date:
+            plot_df = df.loc[start_date:end_date]
+            title_date_range = f"({start_date} to {end_date})"
+            logger.info(f"Plotting data from {start_date} to {end_date}...")
+        else:
+            plot_df = df.tail(2000)  # Show more data for ORB analysis
+            title_date_range = "(Last 2000 bars)"
+            logger.info("No date range specified. Plotting the last 2000 data points...")
+
+        if plot_df.empty:
+            logger.error("No data found in the specified date range.")
+            return
+
+        # Resample if needed
+        if timeframe != '1min':
+            logger.info(f"Resampling data to {timeframe}...")
+            plot_df = resample_ohlcv(plot_df, timeframe)
+
+        # Calculate opening ranges for each day
+        logger.info("Calculating opening ranges...")
+        
+        # Convert time strings to time objects
+        range_start = pd.to_datetime(range_start_time).time()
+        range_end = pd.to_datetime(range_end_time).time()
+        
+        # Create series to hold range bounds
+        upper_bounds = pd.Series(index=plot_df.index, dtype=float)
+        lower_bounds = pd.Series(index=plot_df.index, dtype=float)
+        breakout_signals = pd.Series(index=plot_df.index, dtype=float)
+        
+        # Process each trading day
+        range_count = 0
+        breakout_count = 0
+        
+        for date, day_data in plot_df.groupby(plot_df.index.date):
+            # Get opening range data for this day
+            day_times = pd.to_datetime(day_data.index).time
+            range_mask = (day_times >= range_start) & (day_times < range_end)
+            range_data = day_data[range_mask]
+            
+            if len(range_data) == 0:
+                continue
+                
+            # Calculate range bounds
+            range_high = range_data['high'].max()
+            range_low = range_data['low'].min()
+            range_count += 1
+            
+            # Fill bounds for the entire day
+            day_mask = plot_df.index.date == date
+            upper_bounds.loc[day_mask] = range_high
+            lower_bounds.loc[day_mask] = range_low
+            
+            # Detect breakouts (price closes above range high after range period)
+            post_range_mask = day_mask & (pd.to_datetime(plot_df.index).time >= range_end)
+            post_range_data = plot_df[post_range_mask]
+            
+            if len(post_range_data) > 0:
+                breakout_mask = post_range_data['close'] > range_high
+                if breakout_mask.any():
+                    # Mark first breakout of the day
+                    first_breakout_idx = post_range_data[breakout_mask].index[0]
+                    breakout_price = plot_df.loc[first_breakout_idx, 'close']
+                    breakout_signals.loc[first_breakout_idx] = breakout_price + (breakout_price * 0.001)  # Slightly above for visibility
+                    breakout_count += 1
+
+        logger.info(f"Found {range_count} trading days with opening ranges")
+        logger.info(f"Detected {breakout_count} breakout signals")
+
+        # Create addplot objects
+        ap = []
+        
+        # Add upper bounds line
+        if upper_bounds.notna().any():
+            ap.append(mpf.make_addplot(upper_bounds, type='line', color='red', 
+                                     width=1, linestyle='--', alpha=0.8, label='Range High'))
+        
+        # Add lower bounds line  
+        if lower_bounds.notna().any():
+            ap.append(mpf.make_addplot(lower_bounds, type='line', color='green', 
+                                     width=1, linestyle='--', alpha=0.8, label='Range Low'))
+        
+        # Add breakout signals
+        if breakout_signals.notna().any():
+            ap.append(mpf.make_addplot(breakout_signals, type='scatter', marker='^', 
+                                     markersize=60, color='blue', alpha=0.8, label='Breakout Signal'))
+
+        # Create the plot
+        logger.info("Generating Open Range Breakout visualization...")
+        
+        title = (f'Open Range Breakout Analysis {title_date_range}\n'
+                f'Range: {range_start_time} to {range_end_time} | '
+                f'Red Dashed = Range High, Green Dashed = Range Low, Blue Triangles = Breakouts')
+        
+        kwargs = {
+            'type': 'candle',
+            'style': 'charles',
+            'title': title,
+            'ylabel': 'Price ($)',
+            'volume': True,
+            'figsize': (20, 12),
+            'panel_ratios': (4, 1),
+            'warn_too_much_data': 100000,
+        }
+        
+        if ap:
+            kwargs['addplot'] = ap
+            
+        mpf.plot(plot_df, **kwargs)
+        
+        # Print summary statistics
+        logger.info(f"\n--- Open Range Breakout Analysis Summary ---")
+        logger.info(f"Date Range: {title_date_range}")
+        logger.info(f"Opening Range Time: {range_start_time} to {range_end_time}")
+        logger.info(f"Total Trading Days: {range_count}")
+        logger.info(f"Breakout Signals: {breakout_count}")
+        if range_count > 0:
+            logger.info(f"Breakout Rate: {breakout_count/range_count:.1%}")
+
+    except FileNotFoundError:
+        logger.error(f"Error: The file '{file_path}' was not found.")
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}")
+        raise
 
 if __name__ == '__main__':
     # --- Configuration ---

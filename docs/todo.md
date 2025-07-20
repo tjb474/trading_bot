@@ -1,6 +1,7 @@
 # To-Do List
 
 ## High Priority
+- [ ] Much more data - model needs more anyway
 - [ ] Update KPI to an R:R or % gain
 - [ ] Task 2
 
