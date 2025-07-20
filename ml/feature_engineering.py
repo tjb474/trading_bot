@@ -281,3 +281,101 @@ def add_is_nr7_feature(df: pd.DataFrame) -> pd.DataFrame:
     nr7_days = int(df_with_feature['is_nr7'].sum() / 390)
     logger.info(f"NR7 signal calculated. Found {nr7_days} potential NR7 trading days.")
     return df_with_feature
+
+@registry.register('breakout_direction', range_start='09:30:00', range_end='10:15:00')
+def add_breakout_direction_feature(df: pd.DataFrame, range_start: str = '09:30:00', range_end: str = '10:15:00') -> pd.DataFrame:
+    """
+    Add breakout direction feature that identifies Open Range Breakout direction in real-time.
+    
+    This feature can be calculated during live trading as soon as a breakout occurs.
+    It assigns:
+    - 1 for bullish breakouts (price breaks above opening range high)
+    - -1 for bearish breakouts (price breaks below opening range low)
+    - 0 for no breakout or during the opening range period
+    
+    Args:
+        range_start: Start time of the opening range (e.g., "09:30:00")
+        range_end: End time of the opening range (e.g., "10:15:00")
+    
+    Process:
+    1. For each day, calculate the opening range high/low
+    2. After the range ends, monitor for breakouts
+    3. Set direction to 1/-1 immediately when breakout occurs
+    4. Maintain the direction for the rest of the trading day
+    5. Only the first breakout of the day counts (no reversals)
+    
+    Note: This feature is designed for real-time use - it doesn't look ahead
+    and can be calculated bar-by-bar as new data arrives.
+    """
+    logger.info(f"Calculating breakout direction feature (range: {range_start} to {range_end})...")
+    
+    # Initialize the feature column
+    df = df.copy()
+    df['breakout_direction'] = 0
+    
+    # Convert time strings to time objects for comparison
+    range_start_time = pd.to_datetime(range_start).time()
+    range_end_time = pd.to_datetime(range_end).time()
+    
+    # Add time and date columns for processing
+    df['time'] = pd.to_datetime(df.index).time
+    df['date'] = pd.to_datetime(df.index).date
+    
+    # Process each trading day
+    unique_dates = df['date'].unique()
+    breakout_count = {'bullish': 0, 'bearish': 0}
+    
+    for date in unique_dates:
+        day_mask = df['date'] == date
+        day_data = df[day_mask].copy()
+        
+        # Get opening range data
+        range_mask = (day_data['time'] >= range_start_time) & (day_data['time'] < range_end_time)
+        range_data = day_data[range_mask]
+        
+        if len(range_data) == 0:
+            continue
+            
+        # Calculate range bounds
+        range_high = range_data['high'].max()
+        range_low = range_data['low'].min()
+        
+        # Get post-range data
+        post_range_mask = day_data['time'] >= range_end_time
+        post_range_indices = day_data[post_range_mask].index
+        
+        breakout_detected = False
+        
+        # Process each bar after range end chronologically
+        for idx in post_range_indices:
+            if breakout_detected:
+                # Maintain the breakout direction for rest of day
+                df.loc[idx, 'breakout_direction'] = current_direction
+            else:
+                # Check for breakout
+                current_price = df.loc[idx, 'close']
+                
+                if current_price > range_high:
+                    # Bullish breakout
+                    current_direction = 1
+                    df.loc[idx, 'breakout_direction'] = current_direction
+                    breakout_detected = True
+                    breakout_count['bullish'] += 1
+                elif current_price < range_low:
+                    # Bearish breakout
+                    current_direction = -1
+                    df.loc[idx, 'breakout_direction'] = current_direction
+                    breakout_detected = True
+                    breakout_count['bearish'] += 1
+                # else: no breakout yet, stays 0
+    
+    # Clean up temporary columns
+    df = df.drop(['time', 'date'], axis=1)
+    
+    logger.debug("Breakout direction DataFrame sample:\n%s", df.head(50))
+    
+    total_breakouts = breakout_count['bullish'] + breakout_count['bearish']
+    logger.info(f"Breakout direction feature calculated. Found {total_breakouts} breakouts "
+               f"({breakout_count['bullish']} bullish, {breakout_count['bearish']} bearish).")
+    
+    return df

@@ -13,83 +13,36 @@ logger = logging.getLogger(__name__)
 
 def _generate_signals(df: pd.DataFrame, start_time: str, end_time: str) -> pd.DataFrame:
     """
-    Generate breakout signals (both bullish and bearish) from the opening range.
+    Generate breakout signals using the breakout_direction feature.
+    This now works with the feature engineering system instead of duplicating logic.
 
     Args:
-        df (pd.DataFrame): DataFrame with OHLC data
-        start_time (str): Start time of the range window (e.g., "09:30:00")
-        end_time (str): End time of the range window (e.g., "10:00:00")
+        df (pd.DataFrame): DataFrame with OHLC data and breakout_direction feature
+        start_time (str): Start time of the range window (for compatibility)
+        end_time (str): End time of the range window (for compatibility)
 
     Returns:
         pd.DataFrame: DataFrame with breakout signals and their direction
     """
-    signals = pd.DataFrame(index=df.index)
+    logger.info("Extracting breakout signals from breakout_direction feature...")
     
-    # Convert time strings to pandas time objects
-    signals['time'] = pd.to_datetime(df.index).time
-    range_start = pd.to_datetime(start_time).time()
-    range_end = pd.to_datetime(end_time).time()
+    # Find all rows where a breakout occurs (direction changes from 0 to 1 or -1)
+    breakout_mask = (df['breakout_direction'] != 0) & (df['breakout_direction'].shift(1) == 0)
     
-    # Calculate daily ranges
-    signals['date'] = pd.to_datetime(df.index).date
-    unique_dates = signals['date'].unique()
+    if not breakout_mask.any():
+        logger.warning("No breakout signals found in the data.")
+        return pd.DataFrame(columns=['direction'])
     
-    breakout_signals = []
-    breakout_directions = []
-    logger.info(f"Analyzing {len(unique_dates)} trading days for breakout signals...")
+    signals = df[breakout_mask].copy()
+    signals['direction'] = signals['breakout_direction']
     
-    for date in unique_dates:
-        day_mask = signals['date'] == date
-        range_mask = (signals['time'] >= range_start) & (signals['time'] < range_end)
-        
-        # Get data for the opening range on this day
-        range_data = df[day_mask & range_mask]
-        if len(range_data) == 0:
-            continue
-            
-        range_high = range_data['high'].max()
-        range_low = range_data['low'].min()
-        
-        # Get data after the range on this day
-        post_range_mask = day_mask & (signals['time'] >= range_end)
-        post_range_data = df[post_range_mask]
-        
-        # Look for breakouts (both directions)
-        if len(post_range_data) > 0:
-            # Check for upward breakouts
-            up_breakout_mask = post_range_data['close'] > range_high
-            # Check for downward breakouts  
-            down_breakout_mask = post_range_data['close'] < range_low
-            
-            up_breakout_times = post_range_data[up_breakout_mask].index
-            down_breakout_times = post_range_data[down_breakout_mask].index
-            
-            # Find the first breakout (either direction)
-            first_breakout_time = None
-            breakout_direction = None
-            
-            if len(up_breakout_times) > 0 and len(down_breakout_times) > 0:
-                # Both occurred - take the earliest
-                if up_breakout_times[0] < down_breakout_times[0]:
-                    first_breakout_time = up_breakout_times[0]
-                    breakout_direction = 1  # Bullish breakout
-                else:
-                    first_breakout_time = down_breakout_times[0]
-                    breakout_direction = -1  # Bearish breakout
-            elif len(up_breakout_times) > 0:
-                first_breakout_time = up_breakout_times[0]
-                breakout_direction = 1  # Bullish breakout
-            elif len(down_breakout_times) > 0:
-                first_breakout_time = down_breakout_times[0]
-                breakout_direction = -1  # Bearish breakout
-            
-            if first_breakout_time is not None:
-                breakout_signals.append(first_breakout_time)
-                breakout_directions.append(breakout_direction)
+    # Keep only the direction column for consistency with _label_trades
+    signals = signals[['direction']]
     
-    signals = pd.DataFrame(index=breakout_signals)
-    signals['direction'] = breakout_directions
-    logger.info(f"Generated {len(signals)} breakout signals ({sum(d == 1 for d in breakout_directions)} bullish, {sum(d == -1 for d in breakout_directions)} bearish).")
+    bullish_count = (signals['direction'] == 1).sum()
+    bearish_count = (signals['direction'] == -1).sum()
+    
+    logger.info(f"Generated {len(signals)} breakout signals ({bullish_count} bullish, {bearish_count} bearish).")
     return signals
 
 
@@ -197,28 +150,37 @@ class OpenRangeBreakoutPipeline(BasePipeline):
         split_ratio = self.config.trading_params['train_test_split_ratio']
         train_df, _ = self.data_manager.split_data(full_df, split_ratio)
 
-        # 3. Add all required features using the registry
+        # 3. Get range parameters for feature engineering and signal generation
+        range_start = self.params['range']['start']
+        range_end = self.params['range']['end']
+
+        # 4. Add all required features using the registry
         feature_list = self.params['features']['feature_list']
         feature_params = {
             'volatility_window': self.params['features'].get('volatility_window', 20),
-            'rsi_window': self.params['features'].get('rsi_window', 14)
+            'rsi_window': self.params['features'].get('rsi_window', 14),
+            'range_start': range_start,
+            'range_end': range_end
         }
+        
+        # Ensure breakout_direction is included in features for this strategy
+        if 'breakout_direction' not in feature_list:
+            feature_list = feature_list + ['breakout_direction']
+            
         train_df = create_features(train_df, feature_list, **feature_params)
         
-        # 4. Generate and Label Signals
-        range_start = self.params['range']['start']
-        range_end = self.params['range']['end']
+        # 5. Generate and Label Signals
         signals_df = _generate_signals(train_df, range_start, range_end)
         
         tp_mult = self.params['risk']['take_profit_multiplier']
         sl_mult = self.params['risk']['stop_loss_multiplier']
         labeled_signals = _label_trades(signals_df, train_df, tp_mult, sl_mult)
 
-        # 5. Join features with labeled signals
+        # 6. Join features with labeled signals
         model_data = labeled_signals.join(train_df[feature_list], how='inner').dropna()
 
-        # 6. ML Training
-        X = model_data[feature_list + ['direction']]  # Include direction as a feature
+        # 7. ML Training  
+        X = model_data[feature_list]  # breakout_direction is now included in feature_list
         y = model_data['target']
         
         if X.empty:
@@ -234,7 +196,7 @@ class OpenRangeBreakoutPipeline(BasePipeline):
         logger.info("--- Model Evaluation on Hold-Out Test Set ---")
         logger.info("\n" + classification_report(y_test, model.predict(X_test)))
         
-        # 7. Save Model
+        # 8. Save Model
         model_path = self.config.get_model_path('ml_open_range_breakout')
         joblib.dump(model, model_path)
         logger.info(f"Model successfully trained and saved to: {model_path}")
