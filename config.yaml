@@ -1,6 +1,6 @@
 # --- File Paths ---
 paths:
-  data: "data/spy_ohlcv_new.dbn"  # Main data file for training/backtesting
+  data: "data/spy_ohlcv_20190102_20250710.dbn"  # Main data file for training/backtesting
 
 # --- Logging Configuration ---
 logging:

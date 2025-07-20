@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 def _generate_signals(df: pd.DataFrame, start_time: str, end_time: str) -> pd.DataFrame:
     """
-    Generate buy signals based on breakouts from the opening range.
+    Generate breakout signals (both bullish and bearish) from the opening range.
 
     Args:
         df (pd.DataFrame): DataFrame with OHLC data
@@ -21,7 +21,7 @@ def _generate_signals(df: pd.DataFrame, start_time: str, end_time: str) -> pd.Da
         end_time (str): End time of the range window (e.g., "10:00:00")
 
     Returns:
-        pd.DataFrame: DataFrame with only the rows where breakout signals occurred
+        pd.DataFrame: DataFrame with breakout signals and their direction
     """
     signals = pd.DataFrame(index=df.index)
     
@@ -34,7 +34,8 @@ def _generate_signals(df: pd.DataFrame, start_time: str, end_time: str) -> pd.Da
     signals['date'] = pd.to_datetime(df.index).date
     unique_dates = signals['date'].unique()
     
-    buy_signals = []
+    breakout_signals = []
+    breakout_directions = []
     logger.info(f"Analyzing {len(unique_dates)} trading days for breakout signals...")
     
     for date in unique_dates:
@@ -53,25 +54,52 @@ def _generate_signals(df: pd.DataFrame, start_time: str, end_time: str) -> pd.Da
         post_range_mask = day_mask & (signals['time'] >= range_end)
         post_range_data = df[post_range_mask]
         
-        # Look for breakouts
+        # Look for breakouts (both directions)
         if len(post_range_data) > 0:
-            breakout_mask = post_range_data['close'] > range_high
-            if breakout_mask.any():
-                # Get the first breakout of the day
-                breakout_signal = post_range_data[breakout_mask].iloc[0]
-                buy_signals.append(breakout_signal.name)
+            # Check for upward breakouts
+            up_breakout_mask = post_range_data['close'] > range_high
+            # Check for downward breakouts  
+            down_breakout_mask = post_range_data['close'] < range_low
+            
+            up_breakout_times = post_range_data[up_breakout_mask].index
+            down_breakout_times = post_range_data[down_breakout_mask].index
+            
+            # Find the first breakout (either direction)
+            first_breakout_time = None
+            breakout_direction = None
+            
+            if len(up_breakout_times) > 0 and len(down_breakout_times) > 0:
+                # Both occurred - take the earliest
+                if up_breakout_times[0] < down_breakout_times[0]:
+                    first_breakout_time = up_breakout_times[0]
+                    breakout_direction = 1  # Bullish breakout
+                else:
+                    first_breakout_time = down_breakout_times[0]
+                    breakout_direction = -1  # Bearish breakout
+            elif len(up_breakout_times) > 0:
+                first_breakout_time = up_breakout_times[0]
+                breakout_direction = 1  # Bullish breakout
+            elif len(down_breakout_times) > 0:
+                first_breakout_time = down_breakout_times[0]
+                breakout_direction = -1  # Bearish breakout
+            
+            if first_breakout_time is not None:
+                breakout_signals.append(first_breakout_time)
+                breakout_directions.append(breakout_direction)
     
-    signals = pd.DataFrame(index=buy_signals)
-    logger.info(f"Generated {len(signals)} breakout signals.")
+    signals = pd.DataFrame(index=breakout_signals)
+    signals['direction'] = breakout_directions
+    logger.info(f"Generated {len(signals)} breakout signals ({sum(d == 1 for d in breakout_directions)} bullish, {sum(d == -1 for d in breakout_directions)} bearish).")
     return signals
 
 
 def _label_trades(signals: pd.DataFrame, df: pd.DataFrame, tp_mult: float, sl_mult: float) -> pd.DataFrame:
     """
     Label trades based on whether they hit take profit or stop loss first.
+    Handles both bullish (long) and bearish (short) breakout trades.
     
     Args:
-        signals (pd.DataFrame): DataFrame with signal timestamps as index
+        signals (pd.DataFrame): DataFrame with signal timestamps as index and 'direction' column
         df (pd.DataFrame): Full OHLC DataFrame
         tp_mult (float): Take profit multiplier of the range size
         sl_mult (float): Stop loss multiplier of the range size
@@ -79,7 +107,7 @@ def _label_trades(signals: pd.DataFrame, df: pd.DataFrame, tp_mult: float, sl_mu
     Returns:
         pd.DataFrame: signals DataFrame with added 'target' column
     """
-    logger.info("Labeling trades...")
+    logger.info("Labeling trades as a win or loss...")
     labels = []
     
     for signal_time in signals.index:
@@ -94,18 +122,28 @@ def _label_trades(signals: pd.DataFrame, df: pd.DataFrame, tp_mult: float, sl_mu
         # Calculate range size and price targets
         range_size = range_data['high'].max() - range_data['low'].min()
         entry_price = df.loc[signal_time, 'close']
-        tp_price = entry_price + (range_size * tp_mult)
-        sl_price = entry_price - (range_size * sl_mult)
+        direction = signals.loc[signal_time, 'direction']
+        
+        if direction == 1:  # Bullish breakout (long trade)
+            tp_price = entry_price + (range_size * tp_mult)
+            sl_price = entry_price - (range_size * sl_mult)
+        else:  # Bearish breakout (short trade)
+            tp_price = entry_price - (range_size * tp_mult)
+            sl_price = entry_price + (range_size * sl_mult)
         
         # Get future data for this trade
         future_data = df.loc[signal_time:].iloc[1:]  # Start from next bar
         if len(future_data) == 0:
             labels.append(0)  # No future data available
             continue
-            
-        # Check which price level was hit first
-        hit_tp = future_data['high'] >= tp_price
-        hit_sl = future_data['low'] <= sl_price
+        
+        # Check which price level was hit first based on trade direction
+        if direction == 1:  # Long trade
+            hit_tp = future_data['high'] >= tp_price
+            hit_sl = future_data['low'] <= sl_price
+        else:  # Short trade
+            hit_tp = future_data['low'] <= tp_price
+            hit_sl = future_data['high'] >= sl_price
         
         if not (hit_tp.any() or hit_sl.any()):
             labels.append(0)  # Neither target was hit
@@ -127,6 +165,13 @@ def _label_trades(signals: pd.DataFrame, df: pd.DataFrame, tp_mult: float, sl_mu
     signals['target'] = labels
     logger.info("\n--- Target Label Distribution ---")
     logger.info(signals['target'].value_counts(normalize=True).to_frame(name='Proportion').assign(Count=signals['target'].value_counts()))
+    
+    # Show breakdown by direction
+    logger.info("\n--- Breakout Direction Distribution ---")
+    direction_counts = signals['direction'].value_counts()
+    logger.info(f"Bullish breakouts (direction=1): {direction_counts.get(1, 0)}")
+    logger.info(f"Bearish breakouts (direction=-1): {direction_counts.get(-1, 0)}")
+    
     return signals
 
 
@@ -173,7 +218,7 @@ class OpenRangeBreakoutPipeline(BasePipeline):
         model_data = labeled_signals.join(train_df[feature_list], how='inner').dropna()
 
         # 6. ML Training
-        X = model_data[feature_list]
+        X = model_data[feature_list + ['direction']]  # Include direction as a feature
         y = model_data['target']
         
         if X.empty:
