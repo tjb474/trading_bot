@@ -4,7 +4,11 @@ import pandas as pd
 import mplfinance as mpf
 import os
 import numpy as np
+import logging
 from ml.feature_engineering import create_features
+
+# Get the logger without configuring it - configuration comes from Config class
+logger = logging.getLogger(__name__)
 
 def resample_ohlcv(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
     """
@@ -37,7 +41,7 @@ def plot_ohlc_with_features(file_path, start_date=None, end_date=None, timeframe
         end_date (str, optional): The end date for the plot slice (e.g., '2025-06-11')
         timeframe (str, optional): Timeframe to display ('1min', '5min', '15min', 'H', 'D')
     """
-    print(f"Attempting to load data from: {file_path}")
+    logger.info(f"Attempting to load data from: {file_path}")
     try:
         # Load data
         ext = os.path.splitext(file_path)[1].lower()
@@ -45,40 +49,40 @@ def plot_ohlc_with_features(file_path, start_date=None, end_date=None, timeframe
             try:
                 from databento import DBNStore
             except ImportError:
-                print("Error: databento package is not installed. Please install it with 'pip install databento'")
+                logger.error("databento package is not installed. Please install it with 'pip install databento'")
                 return
             store = DBNStore.from_file(file_path)
             df = store.to_df()
-            print("DBN file loaded and converted to DataFrame.")
+            logger.info("DBN file loaded and converted to DataFrame.")
         else:
             df = pd.read_csv(file_path, index_col=0, parse_dates=True)
-            print("CSV data loaded successfully.")
+            logger.info("CSV data loaded successfully.")
 
         # Sort and prepare data
         df = df.sort_index()
 
-        # Calculate NR4 and NR7 features on the original 1-minute data
-        print("Calculating NR4 and NR7 features...")
+        # Calculate NR4 and NR7 features
+        logger.info("Calculating NR4 and NR7 features...")
         df = create_features(df, feature_list=['is_nr4', 'is_nr7'])
 
         # Select plot range
         if start_date and end_date:
             plot_df = df.loc[start_date:end_date]
             title_date_range = f"({start_date} to {end_date})"
-            print(f"Slicing data for plotting from {start_date} to {end_date}...")
+            logger.info(f"Slicing data for plotting from {start_date} to {end_date}...")
         else:
             plot_df = df.tail(1000)
             title_date_range = "(Last 1000 data points)"
-            print("No date range specified. Plotting the last 1000 data points...")
+            logger.info("No date range specified. Plotting the last 1000 data points...")
 
         if plot_df.empty:
-            print("\nError: No data found in the specified date range.")
-            print(f"Please check that your data file '{file_path}' contains data between {start_date} and {end_date}.")
+            logger.error("\nNo data found in the specified date range.")
+            logger.error(f"Please check that your data file '{file_path}' contains data between {start_date} and {end_date}.")
             return
             
         # Resample data to requested timeframe if different from 1min
         if timeframe != '1min':
-            print(f"Resampling data to {timeframe} timeframe...")
+            logger.info(f"Resampling data to {timeframe} timeframe...")
             plot_df = resample_ohlcv(plot_df, timeframe)
 
         # Create marker data for NR4 and NR7 signals
@@ -103,7 +107,7 @@ def plot_ohlc_with_features(file_path, start_date=None, end_date=None, timeframe
                 plot_count += 1
                 nr7_markers[day_start] = day_high + day_range * 0.02
 
-        print(f"Found {plot_count} days with NR4/NR7 signals in the selected date range")
+        logger.info(f"Found {plot_count} days with NR4/NR7 signals in the selected date range")
 
         # Create addplot objects
         ap = []
@@ -119,7 +123,7 @@ def plot_ohlc_with_features(file_path, start_date=None, end_date=None, timeframe
                                      markersize=100, color='red', label='NR7'))
 
         # Plot configuration
-        print("Generating plot...")
+        logger.info("Generating plot...")
         kwargs = {
             'type': 'candle',
             'style': 'charles',
@@ -139,26 +143,26 @@ def plot_ohlc_with_features(file_path, start_date=None, end_date=None, timeframe
         mpf.plot(plot_df, **kwargs)
 
     except FileNotFoundError:
-        print(f"Error: The file '{file_path}' was not found.")
+        logger.error(f"Error: The file '{file_path}' was not found.")
     except Exception as e:
-        print(f"An unexpected error occurred: {e}")
+        logger.error(f"An unexpected error occurred: {e}")
         raise  # Re-raise the exception to see the full traceback during development
 
 
 def plot_ohlc_data(file_path, start_date=None, end_date=None):
     """Original plotting function without feature markers."""
-    print(f"Attempting to load data from: {file_path}")
+    logger.info(f"Attempting to load data from: {file_path}")
     try:
         ext = os.path.splitext(file_path)[1].lower()
         if ext == '.dbn':
             try:
                 from databento import DBNStore
             except ImportError:
-                print("Error: databento package is not installed. Please install it with 'pip install databento'.")
+                logger.error("databento package is not installed. Please install it with 'pip install databento'.")
                 return
             store = DBNStore.from_file(file_path)
             df = store.to_df()
-            print("DBN file loaded and converted to DataFrame.")
+            logger.info("DBN file loaded and converted to DataFrame.")
         else:
             # 1. Load the data using pandas
             df = pd.read_csv(
@@ -166,7 +170,7 @@ def plot_ohlc_data(file_path, start_date=None, end_date=None):
                 index_col=0,
                 parse_dates=True
             )
-            print("CSV data loaded successfully.")
+            logger.info("CSV data loaded successfully.")
 
         # 2. Prepare the data for plotting
         # mplfinance requires specific column names: 'Open', 'High', 'Low', 'Close', 'Volume'
@@ -179,20 +183,20 @@ def plot_ohlc_data(file_path, start_date=None, end_date=None):
         if start_date and end_date:
             plot_df = df.loc[start_date:end_date]
             title_date_range = f"({start_date} to {end_date})"
-            print(f"Slicing data for plotting from {start_date} to {end_date}...")
+            logger.info(f"Slicing data for plotting from {start_date} to {end_date}...")
         else:
             # If no dates are provided, just plot the last 1000 bars as a sample.
             plot_df = df.tail(1000)
             title_date_range = "(Last 1000 data points)"
-            print("No date range specified. Plotting the last 1000 data points...")
+            logger.info("No date range specified. Plotting the last 1000 data points...")
 
         if plot_df.empty:
-            print("\nError: No data found in the specified date range.")
-            print(f"Please check that your data file '{file_path}' contains data between {start_date} and {end_date}.")
+            logger.error("\nNo data found in the specified date range.")
+            logger.error(f"Please check that your data file '{file_path}' contains data between {start_date} and {end_date}.")
             return
 
         # 4. Create the plot using mplfinance
-        print("Generating plot...")
+        logger.info("Generating plot...")
         mpf.plot(
             plot_df,
             type='candle',         # Use 'candle' for candlestick chart. Other options: 'line', 'ohlc'.
@@ -206,9 +210,9 @@ def plot_ohlc_data(file_path, start_date=None, end_date=None):
         )
 
     except FileNotFoundError:
-        print(f"Error: The file '{file_path}' was not found.")
+        logger.error(f"Error: The file '{file_path}' was not found.")
     except Exception as e:
-        print(f"An unexpected error occurred: {e}")
+        logger.error(f"An unexpected error occurred: {e}")
 
 
 if __name__ == '__main__':

@@ -1,6 +1,7 @@
 import os
 from typing import Dict, List, Any, Optional
 import yaml
+import logging
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -11,6 +12,7 @@ class Config:
         self.base_dir = Path(__file__).resolve().parent.parent
         self._load_environment()
         self._load_yaml(config_file)
+        self._configure_logging()
 
     def _load_environment(self) -> None:
         """Load environment variables from .env file"""
@@ -25,6 +27,20 @@ class Config:
             
         with open(yaml_path, 'r') as f:
             self._config = yaml.safe_load(f)
+
+    def _configure_logging(self) -> None:
+        """Configure logging based on settings in config.yaml"""
+        log_config = self._config.get('logging', {})
+        level = getattr(logging, log_config.get('level', 'INFO'))
+        format_str = log_config.get('format', '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        
+        # Configure root logger
+        logging.basicConfig(level=level, format=format_str)
+        
+        # Configure our package loggers
+        for logger_name in ['ml', 'common', 'trading', 'strategies', 'training_pipelines', 'viz']:
+            logger = logging.getLogger(logger_name)
+            logger.setLevel(level)
 
     @property
     def active_strategy(self) -> str:

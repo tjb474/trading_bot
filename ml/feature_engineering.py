@@ -48,6 +48,10 @@ from typing import Callable, Dict, List, Optional
 import pandas as pd
 import numpy as np
 from functools import wraps
+import logging
+
+# Get the logger without configuring it - configuration will come from Config class
+logger = logging.getLogger(__name__)
 
 class FeatureRegistry:
     """
@@ -126,7 +130,7 @@ class FeatureRegistry:
             feature_params.update({k: v for k, v in params.items() 
                                  if k in feature_params})
             
-            print(f"Adding feature: {feature}")
+            logger.info(f"Adding feature: {feature}")
             result_df = self._features[feature](result_df, **feature_params)
         
         return result_df
@@ -222,7 +226,7 @@ def add_is_nr4_feature(df: pd.DataFrame) -> pd.DataFrame:
     4. Shift signal forward one day (no lookahead bias)
     5. Map back to minute data
     """
-    print("Calculating NR4 feature...")
+    logger.info("Calculating NR4 feature...")
     daily_df = df.resample('D').agg({
         'open': 'first',
         'high': 'max',
@@ -236,10 +240,14 @@ def add_is_nr4_feature(df: pd.DataFrame) -> pd.DataFrame:
     daily_df['is_nr4_signal_for_today'] = daily_df['is_nr4_day'].shift(1)
     
     daily_signal = daily_df[['is_nr4_signal_for_today']].reindex(df.index, method='ffill').fillna(0)
+    
+    logger.debug("Daily NR4 data:\n%s", daily_df.head(50))
+
     df_with_feature = df.join(daily_signal)
     df_with_feature.rename(columns={'is_nr4_signal_for_today': 'is_nr4'}, inplace=True)
     
-    print(f"NR4 signal calculated. Found {int(df_with_feature['is_nr4'].sum() / 390)} potential NR4 trading days.")
+    nr4_days = int(df_with_feature['is_nr4'].sum() / 390)
+    logger.info(f"NR4 signal calculated. Found {nr4_days} potential NR4 trading days.")
     return df_with_feature
 
 @registry.register('is_nr7')
@@ -253,7 +261,7 @@ def add_is_nr7_feature(df: pd.DataFrame) -> pd.DataFrame:
     
     See is_nr4_feature documentation for detailed process explanation.
     """
-    print("Calculating NR7 feature...")
+    logger.info("Calculating NR7 feature...")
     daily_df = df.resample('D').agg({
         'open': 'first',
         'high': 'max',
@@ -270,5 +278,6 @@ def add_is_nr7_feature(df: pd.DataFrame) -> pd.DataFrame:
     df_with_feature = df.join(daily_signal)
     df_with_feature.rename(columns={'is_nr7_signal_for_today': 'is_nr7'}, inplace=True)
     
-    print(f"NR7 signal calculated. Found {int(df_with_feature['is_nr7'].sum() / 390)} potential NR7 trading days.")
+    nr7_days = int(df_with_feature['is_nr7'].sum() / 390)
+    logger.info(f"NR7 signal calculated. Found {nr7_days} potential NR7 trading days.")
     return df_with_feature

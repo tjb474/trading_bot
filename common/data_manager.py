@@ -2,7 +2,11 @@
 
 import pandas as pd
 import os
+import logging
 from typing import Tuple
+
+# Get logger
+logger = logging.getLogger(__name__)
 
 def load_ohlc_data(file_path: str) -> pd.DataFrame:
     """Loads OHLC data from a CSV or DBN file and prepares it."""
@@ -16,11 +20,11 @@ def load_ohlc_data(file_path: str) -> pd.DataFrame:
         # No more renaming to 'Close'.
         df.columns = [col.lower() for col in df.columns]
         # --- END FIX ---
-        print(f"Data loaded successfully from {file_path}")
-        print(f"Data columns are: {df.columns.tolist()}")
+        logger.info(f"Data loaded successfully from {file_path}")
+        logger.info(f"Data columns are: {df.columns.tolist()}")
         return df
     except FileNotFoundError:
-        print(f"Error: Data file not found at {file_path}")
+        logger.error(f"Error: Data file not found at {file_path}")
         return pd.DataFrame()
 
 # The split_data function is correct and does not need changes.
@@ -29,7 +33,7 @@ def split_data(df: pd.DataFrame, split_ratio: float) -> Tuple[pd.DataFrame, pd.D
     split_index = int(len(df) * split_ratio)
     training_df = df.iloc[:split_index].copy() # Use .copy() to avoid SettingWithCopyWarning
     testing_df = df.iloc[split_index:].copy()  # Use .copy() to avoid SettingWithCopyWarning
-    print(f"Data split. Training set: {len(training_df)} bars, Testing set: {len(testing_df)} bars.")
+    logger.info(f"Data split. Training set: {len(training_df)} bars, Testing set: {len(testing_df)} bars.")
     return training_df, testing_df
 
 def load_dbn_to_df(dbn_path):

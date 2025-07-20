@@ -1,10 +1,14 @@
 import pandas as pd
 import numpy as np
+import logging
 import joblib
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import classification_report
 from .base_pipeline import BasePipeline
+
+# Get logger
+logger = logging.getLogger(__name__)
 
 def _generate_signals(df: pd.DataFrame, short_window: int, long_window: int) -> pd.DataFrame:
     """
@@ -33,7 +37,7 @@ def _generate_signals(df: pd.DataFrame, short_window: int, long_window: int) -> 
     signals['position_changed'] = signals['signal'].diff()
     buy_signals = signals[signals['position_changed'] > 0]
     
-    print(f"Generated {len(buy_signals)} MA crossover signals.")
+    logger.info(f"Generated {len(buy_signals)} MA crossover signals.")
     return buy_signals
 
 
@@ -50,7 +54,7 @@ def _label_trades(signals: pd.DataFrame, df: pd.DataFrame, tp_mult: float, sl_mu
     Returns:
         pd.DataFrame: signals DataFrame with added 'target' column
     """
-    print("Labeling trades...")
+    logger.info("Labeling trades...")
     labels = []
     
     # Calculate ATR for dynamic take profit and stop loss
@@ -96,8 +100,8 @@ def _label_trades(signals: pd.DataFrame, df: pd.DataFrame, tp_mult: float, sl_mu
         labels.append(1 if first_tp < first_sl else 0)
     
     signals['target'] = labels
-    print("\n--- Target Label Distribution ---")
-    print(signals['target'].value_counts(normalize=True))
+    logger.info("\n--- Target Label Distribution ---")
+    logger.info(signals['target'].value_counts(normalize=True))
     return signals
 
 
@@ -105,18 +109,18 @@ class MovingAverageCrossoverPipeline(BasePipeline):
     """
     Pipeline for training the ML-enhanced Moving Average Crossover model.
     """
-    def __init__(self):
-        super().__init__()
+    def __init__(self, config):
+        super().__init__(config)
         self.params = self.config.get_strategy_config('ml_moving_average_crossover')
 
     def run(self):
-        print("--- [INFO] Running Training Pipeline for: ML Moving Average Crossover ---")
+        logger.info("--- [INFO] Running Training Pipeline for: ML Moving Average Crossover ---")
         
         # 1. Load Data
-        print(f"[INFO] Loading data from: {self.config.data_path}")
+        logger.info(f"Loading data from: {self.config.data_path}")
         full_df = self.data_manager.load_ohlc_data(str(self.config.data_path))
         if full_df.empty:
-            print("[CRITICAL] Data could not be loaded. Aborting pipeline.")
+            logger.critical("Data could not be loaded. Aborting pipeline.")
             return
 
         # 2. Split Data
@@ -141,19 +145,19 @@ class MovingAverageCrossoverPipeline(BasePipeline):
         y = model_data['target']
         
         if X.empty:
-            print("[CRITICAL] No data available for training.")
+            logger.critical("No data available for training.")
             return
             
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
         
-        print(f"\n[INFO] Training on {len(X_train)} signals, testing on {len(X_test)}.")
+        logger.info(f"Training on {len(X_train)} signals, testing on {len(X_test)}.")
         model = RandomForestClassifier(n_estimators=100, random_state=42, class_weight='balanced')
         model.fit(X_train, y_train)
         
-        print("\n--- [INFO] Model Evaluation on Hold-Out Test Set ---")
-        print(classification_report(y_test, model.predict(X_test)))
+        logger.info("--- Model Evaluation on Hold-Out Test Set ---")
+        logger.info("\n" + classification_report(y_test, model.predict(X_test)))
         
         # 6. Save Model
         model_path = self.config.get_model_path('ml_moving_average_crossover')
         joblib.dump(model, model_path)
-        print(f"\n[INFO] Model successfully trained and saved to: {model_path}")
+        logger.info(f"Model successfully trained and saved to: {model_path}")

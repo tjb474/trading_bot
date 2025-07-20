@@ -35,38 +35,46 @@ Adding New Features:
 # sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 import argparse
+import logging
 from common.config import config
-from common import data_manager
-from training_pipelines import get_training_pipeline
+from common.data_manager import load_ohlc_data, split_data
 from ml.feature_engineering import create_features
-from trading import backtester
+from training_pipelines.ma_crossover_pipeline import MovingAverageCrossoverPipeline
+from training_pipelines.open_range_breakout_pipeline import OpenRangeBreakoutPipeline
+from trading.backtester import Backtester
 
-
+# Get logger
+logger = logging.getLogger(__name__)
 
 def run_training(pipeline_name: str):
     """Selects and runs the specified training pipeline."""
-    print(f"\n[INFO] Mode: 'train', Pipeline: '{pipeline_name}'")
+    logger.info(f"Mode: 'train', Pipeline: '{pipeline_name}'")
     try:
-        pipeline = get_training_pipeline(pipeline_name)
-        pipeline.run()
-    except ValueError as e:
-        print(f"[CRITICAL] {e}")
+        if pipeline_name == 'ma_crossover':
+            MovingAverageCrossoverPipeline(config).run()
+        elif pipeline_name in ['orb', 'ml_open_range_breakout']:  # Support both names
+            OpenRangeBreakoutPipeline(config).run()
+        else:
+            raise ValueError(f"Unknown pipeline: {pipeline_name}")
+    except Exception as e:
+        logger.critical(str(e))
+        return
 
 def run_backtesting():
     """Loads data and runs the backtesting pipeline."""
-    print(f"\n[INFO] Mode: 'backtest', Strategy: '{config.active_strategy}'")
+    logger.info(f"Mode: 'backtest', Strategy: '{config.active_strategy}'")
     
     # 1. Load Data
-    print(f"[INFO] Loading data from: {config.data_path}")
-    full_df = data_manager.load_ohlc_data(str(config.data_path))
-    if full_df.empty:
-        print("[CRITICAL] Data could not be loaded. Halting backtest.")
+    logger.info(f"Loading data from: {config.data_path}")
+    full_df = load_ohlc_data(config.data_path)
+    if full_df is None or full_df.empty:
+        logger.critical("Data could not be loaded. Halting backtest.")
         return
 
     # 2. Feature Engineering based on strategy config
     strategy_config = config.get_strategy_config()
     if 'features' in strategy_config:
-        print("[INFO] Adding features from config...")
+        logger.info("Adding features from config...")
         feature_config = strategy_config['features']
         
         # Get feature list and parameters
@@ -81,25 +89,28 @@ def run_backtesting():
     
     # 3. Splitting Data
     split_ratio = config.trading_params['train_test_split_ratio']
-    _, test_df = data_manager.split_data(full_df, split_ratio)
+    _, test_df = split_data(full_df, split_ratio)
 
-    backtester.run_backtest(test_df)
+    bt = Backtester(config)
+    bt.run(test_df)
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="ML-Enhanced Trading Bot")
-    # Main command: 'train' or 'backtest'
-    subparsers = parser.add_subparsers(dest='mode', required=True, help='Select mode')
-
-    # Sub-parser for the 'train' command
-    train_parser = subparsers.add_parser('train', help='Train a model')
-    train_parser.add_argument('pipeline_name', help='The name of the training pipeline to run (e.g., ml_moving_average_crossover)')
+def main():
+    parser = argparse.ArgumentParser(description='Trading Bot CLI')
+    parser.add_argument('mode', choices=['train', 'backtest'], help='Operation mode')
     
-    # Sub-parser for the 'backtest' command
-    backtest_parser = subparsers.add_parser('backtest', help='Run a backtest on a strategy')
+    # Add pipeline as a positional argument after mode when in train mode
+    parser.add_argument('pipeline', nargs='?', help='Training pipeline to use (required for train mode)', 
+                       choices=['ma_crossover', 'orb', 'ml_open_range_breakout'])
     
     args = parser.parse_args()
-    
+
     if args.mode == 'train':
-        run_training(args.pipeline_name)
+        if not args.pipeline:
+            parser.error("Pipeline argument is required for train mode")
+        run_training(args.pipeline)
+            
     elif args.mode == 'backtest':
         run_backtesting()
+
+if __name__ == '__main__':
+    main()

@@ -2,6 +2,11 @@
 paths:
   data: "data/spy_ohlcv_new.dbn"  # Main data file for training/backtesting
 
+# --- Logging Configuration ---
+logging:
+  level: "DEBUG"  # Can be DEBUG, INFO, WARNING, ERROR, CRITICAL
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
 # --- Trading Parameters ---
 trading:
   initial_cash: 100000.0
@@ -36,7 +41,7 @@ strategies:
     # Time Parameters
     range:
       start: "09:30:00"
-      end: "10:00:00"
+      end: "10:15:00"
     
     # Risk Management
     risk:
