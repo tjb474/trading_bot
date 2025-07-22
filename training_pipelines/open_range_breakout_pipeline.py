@@ -181,10 +181,26 @@ class OpenRangeBreakoutPipeline(BasePipeline):
         labeled_signals = _label_trades(signals_df, train_df, tp_mult, sl_mult)
 
         # 6. Join features with labeled signals
-        model_data = labeled_signals.join(train_df[feature_list], how='inner').dropna()
+        # Handle day_of_week expansion: it creates 4 separate binary columns
+        expanded_feature_list = []
+        for feature in feature_list:
+            if feature == 'day_of_week':
+                # day_of_week creates 4 separate binary features
+                expanded_feature_list.extend(['is_monday', 'is_tuesday', 'is_wednesday', 'is_thursday'])
+            else:
+                expanded_feature_list.append(feature)
+        
+        # Verify all features exist in the DataFrame
+        missing_features = [f for f in expanded_feature_list if f not in train_df.columns]
+        if missing_features:
+            logger.error(f"Missing features in DataFrame: {missing_features}")
+            logger.info(f"Available features: {list(train_df.columns)}")
+            raise ValueError(f"Missing features: {missing_features}")
+        
+        model_data = labeled_signals.join(train_df[expanded_feature_list], how='inner').dropna()
 
         # 7. ML Training  
-        X = model_data[feature_list]  # breakout_direction is now included in feature_list
+        X = model_data[expanded_feature_list]  # Use expanded feature list
         y = model_data['target']
         
         if X.empty:

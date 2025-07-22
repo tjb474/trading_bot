@@ -2,13 +2,17 @@
 
 ## High Priority
 - [X] Much more data - model needs more anyway
+- [ ] Backtesting without meta labeling, to test the base strategy
 - [ ] Improve core strategy - see chat with gemini (regime)
 - [ ] Update KPI to an R:R or % gain, or something to do with ATR
 - [ ] Ensemble model
 - [ ] Feature Selection
 
 ## Medium Priority
-- [ ] Featire - Day of week, time of year
+- [ ] Feature - Day of week
+- [ ] Feature - Time of year
+- [ ] Feature - Session Gap?
+- [ ] Feature - ISM PMI - lagged N months, days since PMI release
 - [ ] Feature - market regime
 - [ ] Feature - is_nr4, is_nr7, is_nr20
 - [ ] Feature - CBOE S&P500 volatility index - short breakouts when it's low 

@@ -8,15 +8,20 @@ from strategies import get_strategy
 class Backtester:
     """Backtester class that handles running trading strategy backtests."""
     
-    def __init__(self, config):
+    def __init__(self, config, strategy_name: str = None):
         """Initialize backtester with configuration."""
         self.config = config
+        self.strategy_name = strategy_name or config.active_strategy
         self.logger = logging.getLogger("Backtester")
         
     def run(self, test_data: pd.DataFrame):
         """Run a backtest with the given test data."""
         # --- Logging setup ---
         logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+        
+        # Suppress verbose matplotlib logging
+        logging.getLogger('matplotlib.font_manager').setLevel(logging.WARNING)
+        logging.getLogger('matplotlib').setLevel(logging.WARNING)
         
         # Data validation logging
         self.logger.info(f"Starting backtest with {len(test_data)} rows.")
@@ -31,12 +36,11 @@ class Backtester:
         cerebro.adddata(data_feed)
         
         # --- Strategy Selection ---
-        active_strategy_name = self.config.active_strategy
-        self.logger.info(f"Loading strategy: '{active_strategy_name}'")
-        StrategyClass = get_strategy(active_strategy_name)
+        self.logger.info(f"Loading strategy: '{self.strategy_name}'")
+        StrategyClass = get_strategy(self.strategy_name)
         
         # Get strategy configuration and prepare parameters
-        strategy_config = self.config.get_strategy_config()
+        strategy_config = self.config.get_strategy_config(self.strategy_name)
         
         # Flatten nested config into parameter dict
         strategy_params = {}
@@ -54,7 +58,7 @@ class Backtester:
         if 'model' in strategy_config:
             for key, value in strategy_config['model'].items():
                 if key == 'path':
-                    strategy_params['model_file_path'] = str(self.config.get_model_path())
+                    strategy_params['model_file_path'] = str(self.config.get_model_path(self.strategy_name))
                 else:
                     strategy_params[key] = value
                     
@@ -65,6 +69,9 @@ class Backtester:
         if 'range' in strategy_config:
             for key, value in strategy_config['range'].items():
                 strategy_params[f'range_{key}'] = value
+        
+        # Pass the feature data to the strategy so it can access pre-calculated features
+        strategy_params['feature_data'] = test_data
         
         # Add strategy with its flattened parameters
         self.logger.info(f"Adding strategy with parameters: {strategy_params}")

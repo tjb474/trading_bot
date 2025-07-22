@@ -13,9 +13,13 @@ trading:
   commission_spread_points: 0.8
   stake_size: 10
   train_test_split_ratio: 0.8
+  
+  # Date range for backtesting (optional - if not set, uses full dataset)
+  backtest_start_date: "2025-05-01"  # YYYY-MM-DD format
+  backtest_end_date: "2025-06-30"    # YYYY-MM-DD format
 
 # --- Active Strategy ---
-active_strategy: "ml_moving_average_crossover"
+active_strategy: "ml_open_range_breakout"
 
 # --- Strategy Configurations ---
 strategies:
@@ -57,7 +61,7 @@ strategies:
       feature_list: ['returns', 'volatility', 'rsi', 'is_nr4', 'is_nr7', 
                      'breakout_direction', 'or_size_absolute', 'or_size_normalized',
                      'or_volume', 'or_volume_vs_average', 'or_midpoint_location',
-                     'is_monday', 'is_tuesday', 'is_wednesday', 'is_thursday']
+                     'day_of_week']
 
     # Model Configuration
     model:

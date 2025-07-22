@@ -167,6 +167,31 @@ def create_features(df: pd.DataFrame, feature_list: Optional[List[str]] = None, 
 # Create global registry instance
 registry = FeatureRegistry()
 
+# Register individual day-of-week features to avoid KeyError
+@registry.register('is_monday')
+def add_is_monday_feature(df: pd.DataFrame) -> pd.DataFrame:
+    """Individual Monday feature - calls day_of_week and extracts Monday"""
+    df = add_day_of_week_feature(df)
+    return df
+
+@registry.register('is_tuesday')  
+def add_is_tuesday_feature(df: pd.DataFrame) -> pd.DataFrame:
+    """Individual Tuesday feature - calls day_of_week and extracts Tuesday"""
+    df = add_day_of_week_feature(df)
+    return df
+
+@registry.register('is_wednesday')
+def add_is_wednesday_feature(df: pd.DataFrame) -> pd.DataFrame:
+    """Individual Wednesday feature - calls day_of_week and extracts Wednesday"""
+    df = add_day_of_week_feature(df)
+    return df
+
+@registry.register('is_thursday')
+def add_is_thursday_feature(df: pd.DataFrame) -> pd.DataFrame:
+    """Individual Thursday feature - calls day_of_week and extracts Thursday"""
+    df = add_day_of_week_feature(df)
+    return df
+
 @registry.register('day_of_week')
 def add_day_of_week_feature(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -674,54 +699,6 @@ def add_or_midpoint_location_feature(df: pd.DataFrame, range_start: str = '09:30
     
     This feature shows where the initial balance area is forming relative to
     yesterday's settlement. Formula: (OR High + OR Low) / 2 - Previous Close
-    
-    Args:
-        range_start: Start time of the opening range (e.g., "09:30:00")
-        range_end: End time of the opening range (e.g., "10:15:00")
-    
-    Returns:
-        DataFrame with 'or_midpoint_location' column added
-    """
-    logger.info(f"Calculating OR midpoint location feature (range: {range_start} to {range_end})...")
-    
-    df = df.copy()
-    df['or_midpoint_location'] = 0.0
-    
-    # Convert time strings to time objects
-    range_start_time = pd.to_datetime(range_start).time()
-    range_end_time = pd.to_datetime(range_end).time()
-    
-    # Add time and date columns for processing
-    df['time'] = pd.to_datetime(df.index).time
-    df['date'] = pd.to_datetime(df.index).date
-    
-    # Get daily close prices for reference
-    daily_df = df.resample('D').agg({
-        'close': 'last'
-    }).dropna()
-    daily_df['prev_close'] = daily_df['close'].shift(1)
-    
-    # Process each trading day
-    for date in df['date'].unique():
-        day_mask = df['date'] == date
-        day_data = df[day_mask]
-        
-        # Get opening range data
-        range_mask = (day_data['time'] >= range_start_time) & (day_data['time'] < range_end_time)
-        range_data = day_data[range_mask]
-        
-        if len(range_data) > 0:
-            or_high = range_data['high'].max()
-            or_low = range_data['low'].min()
-            or_midpoint = (or_high + or_low) / 2
-@registry.register('or_midpoint_location', range_start='09:30:00', range_end='10:15:00')
-def add_or_midpoint_location_feature(df: pd.DataFrame, range_start: str = '09:30:00', range_end: str = '10:15:00') -> pd.DataFrame:
-    """
-    Add Opening Range midpoint location relative to previous day's close.
-    
-    IMPORTANT: No lookahead bias - midpoint is only available AFTER the opening range completes.
-    The feature shows where the initial balance area formed relative to yesterday's settlement,
-    but only becomes available at the end of the range period.
     
     Args:
         range_start: Start time of the opening range (e.g., "09:30:00")
