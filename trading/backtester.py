@@ -32,7 +32,21 @@ class Backtester:
         self.logger.info(f"First 5 rows:\n{test_data.head()}\n")
 
         cerebro = bt.Cerebro()
-        data_feed = bt.feeds.PandasData(dataname=test_data)
+        
+        # CRITICAL FIX: Ensure timezone consistency for backtrader
+        # Backtrader can have issues with timezone-aware data, so convert to naive Eastern time
+        if hasattr(test_data.index, 'tz') and test_data.index.tz is not None:
+            self.logger.info(f"Data timezone before backtrader: {test_data.index.tz}")
+            # Convert to naive datetime but keep Eastern time values
+            test_data_for_bt = test_data.copy()
+            test_data_for_bt.index = test_data_for_bt.index.tz_localize(None)
+            self.logger.info(f"Converted to naive Eastern time for backtrader")
+            self.logger.info(f"Sample timestamps after conversion: {test_data_for_bt.index[:3].tolist()}")
+            data_feed = bt.feeds.PandasData(dataname=test_data_for_bt)
+        else:
+            self.logger.info("Data has no timezone information")
+            data_feed = bt.feeds.PandasData(dataname=test_data)
+            
         cerebro.adddata(data_feed)
         
         # --- Strategy Selection ---

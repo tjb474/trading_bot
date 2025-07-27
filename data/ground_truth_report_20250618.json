@@ -1,0 +1,85 @@
+{
+  "timestamp": "2025-07-24T21:28:31.899929",
+  "target_date": "2025-06-18",
+  "data_sources": {
+    "dbn_source": {
+      "file_path": "spy_ohlcv_20190102_20250710.dbn",
+      "total_rows": 1217772,
+      "date_range": "2019-01-02 04:00:00-05:00 to 2025-07-09 19:56:00-04:00",
+      "timezone": "US/Eastern",
+      "columns": [
+        "rtype",
+        "publisher_id",
+        "instrument_id",
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "symbol"
+      ]
+    },
+    "csv_source": {
+      "file_path": "SPY_1min_full.csv",
+      "total_rows": 19013,
+      "date_range": "2025-06-10 00:00:00-04:00 to 2025-07-09 16:00:00-04:00",
+      "timezone": "US/Eastern",
+      "original_columns": [
+        "Unnamed: 0",
+        "Open",
+        "High",
+        "Low",
+        "Close",
+        "Volume"
+      ],
+      "mapped_columns": [
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume"
+      ],
+      "column_mapping": {
+        "Open": "open",
+        "High": "high",
+        "Low": "low",
+        "Close": "close",
+        "Volume": "volume"
+      }
+    }
+  },
+  "dbn_analysis": {
+    "or_calculations": {
+      "method1_timestamp_slice": {
+        "name": "pd.Timestamp slice (notebook)",
+        "or_high": 600.22,
+        "or_low": 597.36,
+        "bar_count": 46,
+        "start_time": "2025-06-18 09:30:00-04:00",
+        "end_time": "2025-06-18 10:15:00-04:00",
+        "first_bar": "2025-06-18 09:30:00-04:00",
+        "last_bar": "2025-06-18 10:15:00-04:00"
+      },
+      "method2_between_time": {
+        "name": "between_time (backtest)",
+        "or_high": 600.22,
+        "or_low": 597.36,
+        "bar_count": 45,
+        "start_time": "2025-06-18 09:30:00",
+        "end_time": "2025-06-18 10:15:00",
+        "first_bar": "2025-06-18 09:30:00-04:00",
+        "last_bar": "2025-06-18 10:14:00-04:00"
+      },
+      "method3_time_filter": {
+        "name": "time filter",
+        "or_high": 600.22,
+        "or_low": 597.36,
+        "bar_count": 46,
+        "start_time": "2025-06-18 09:30:00",
+        "end_time": "2025-06-18 10:15:00",
+        "first_bar": "2025-06-18 09:30:00-04:00",
+        "last_bar": "2025-06-18 10:15:00-04:00"
+      },
+      "raw_data": {
+        "method1_bars": {
+          

@@ -1,5 +1,5 @@
 from .ma_crossover_pipeline import MovingAverageCrossoverPipeline
-from .open_range_breakout_pipeline import OpenRangeBreakoutPipeline
+# from .orb_pipeline import ORBPipeline # Example for the future
 
 def get_training_pipeline(pipeline_name: str):
     """
@@ -7,7 +7,7 @@ def get_training_pipeline(pipeline_name: str):
     """
     pipelines = {
         "ml_moving_average_crossover": MovingAverageCrossoverPipeline,
-        "ml_open_range_breakout": OpenRangeBreakoutPipeline,
+        # "orb_model": ORBPipeline, # Example for the future
     }
     pipeline_class = pipelines.get(pipeline_name.lower())
     

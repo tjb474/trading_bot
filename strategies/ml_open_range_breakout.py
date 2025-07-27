@@ -286,8 +286,8 @@ class MLOpenRangeBreakout(BaseStrategy):
                     else:
                         # Try to find the closest timestamp (allowing for slight differences)
                         try:
-                            # Convert current_datetime to pandas Timestamp with UTC timezone
-                            current_ts = pd.Timestamp(current_datetime, tz='UTC')
+                            # Convert current_datetime to pandas Timestamp with Eastern timezone
+                            current_ts = pd.Timestamp(current_datetime, tz='US/Eastern')
                             if current_ts in self.p.feature_data.index:
                                 current_row = self.p.feature_data.loc[current_ts]
                             else:

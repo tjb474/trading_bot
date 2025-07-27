@@ -81,13 +81,22 @@ def run_backtesting(strategy_name: str = None):
     
     if backtest_start or backtest_end:
         logger.info(f"Applying date range filter: {backtest_start} to {backtest_end}")
-        # Convert to datetime with timezone awareness to match the DataFrame index
+        
+        # Import pytz for date filtering timezone conversion
+        import pytz
+        eastern_tz = pytz.timezone('US/Eastern')
+        
         if backtest_start:
-            start_date = pd.to_datetime(backtest_start, utc=True)
+            # Convert to Eastern timezone to match DataFrame index
+            start_date = pd.to_datetime(backtest_start).tz_localize(eastern_tz)
             full_df = full_df[full_df.index >= start_date]
+            logger.info(f"Filtered start date: {start_date}")
+            
         if backtest_end:
-            end_date = pd.to_datetime(backtest_end, utc=True)
+            # Convert to Eastern timezone to match DataFrame index  
+            end_date = pd.to_datetime(backtest_end).tz_localize(eastern_tz)
             full_df = full_df[full_df.index <= end_date]
+            logger.info(f"Filtered end date: {end_date}")
         
         logger.info(f"Data filtered to {len(full_df)} rows between {full_df.index.min()} and {full_df.index.max()}")
 

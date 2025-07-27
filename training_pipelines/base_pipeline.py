@@ -1,13 +1,15 @@
 from abc import ABC, abstractmethod
-from common import data_manager
-from ml import feature_engineering
 
 class BasePipeline(ABC):
     """
-    Abstract base class for ML training pipelines.
-    Defines common functionality and interface that all pipelines must implement.
+    An abstract base class for all model training pipelines.
+    It defines the common interface that every pipeline must implement.
     """
-    def __init__(self, config):
+    def __init__(self):
+        # Imports are placed here to be available to all child classes
+        from common.config import config
+        from common import data_manager
+        from ml import feature_engineering
         self.config = config
         self.data_manager = data_manager
         self.feature_engineering = feature_engineering
@@ -15,7 +17,8 @@ class BasePipeline(ABC):
     @abstractmethod
     def run(self):
         """
-        Execute the training pipeline.
-        This method must be implemented by all concrete pipeline classes.
+        This method must be implemented by each concrete pipeline.
+        It should contain the full logic for loading data, training a model,
+        and saving it.
         """
-        pass
+        raise NotImplementedError("The 'run' method must be implemented by the subclass.")
