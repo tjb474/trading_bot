@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import logging
 import joblib
+import pytz
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import classification_report
@@ -109,8 +110,8 @@ class MovingAverageCrossoverPipeline(BasePipeline):
     """
     Pipeline for training the ML-enhanced Moving Average Crossover model.
     """
-    def __init__(self, config):
-        super().__init__(config)
+    def __init__(self):
+        super().__init__()
         self.params = self.config.get_strategy_config('ml_moving_average_crossover')
 
     def run(self):
@@ -122,6 +123,24 @@ class MovingAverageCrossoverPipeline(BasePipeline):
         if full_df.empty:
             logger.critical("Data could not be loaded. Aborting pipeline.")
             return
+
+        # CRITICAL FIX: Apply timezone conversion to match backtester behavior
+        # Convert UTC data to Eastern timezone for consistent signal calculations
+        if hasattr(full_df.index, 'tz') and full_df.index.tz is not None:
+            logger.info(f"Data timezone before conversion: {full_df.index.tz}")
+            
+            # Convert UTC to Eastern timezone
+            eastern_tz = pytz.timezone('US/Eastern')
+            if 'UTC' in str(full_df.index.tz):
+                logger.info("Converting UTC data to Eastern timezone for ML training...")
+                full_df = full_df.copy()
+                full_df.index = full_df.index.tz_convert(eastern_tz)
+                logger.info(f"Data converted to: {full_df.index.tz}")
+                logger.info(f"Sample timestamps after timezone conversion: {full_df.index[:3].tolist()}")
+            else:
+                logger.info(f"Data already in timezone: {full_df.index.tz}")
+        else:
+            logger.info("Data has no timezone information")
 
         # 2. Split Data
         split_ratio = self.config.trading_params['train_test_split_ratio']

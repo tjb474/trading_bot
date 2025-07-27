@@ -1,3 +1,5 @@
+# trading_bot/common/config.py
+
 import os
 import yaml
 from pathlib import Path
@@ -30,7 +32,7 @@ class Config:
     # --- Properties for Tunable General Parameters (from yaml) ---
     @property
     def general(self) -> dict:
-        return self.yaml_data['general']
+        return self.yaml_data.get('general', {}) # Use .get for safety
 
     @property
     def active_strategy(self) -> str:
@@ -45,6 +47,12 @@ class Config:
     def trading_params(self) -> dict:
         """Get the trading parameters section."""
         return self.yaml_data['trading']
+    
+    # --- THIS IS THE FIX ---
+    @property
+    def logging(self) -> dict:
+        """Get the logging configuration section."""
+        return self.yaml_data['logging']
     
     # --- Methods for strategy-specific parameters (from yaml) ---
     def get_strategy_config(self, strategy_name: str = None) -> dict:
@@ -78,12 +86,6 @@ class Config:
     def DATA_DIR(self) -> Path:
         return self.BASE_DIR / 'data'
         
-    @property
-    def DATA_FILE_PATH(self) -> Path:
-        """Gets the data file path from YAML and makes it an absolute path."""
-        relative_path = Path(self.general['data_file_path'])
-        return self.BASE_DIR / relative_path
-
     def get_model_path(self, strategy_name: str = None) -> Path:
         """Gets the model file path for a strategy and makes it absolute."""
         params = self.get_strategy_params(strategy_name)

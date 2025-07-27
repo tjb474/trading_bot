@@ -1,3 +1,4 @@
+# trading_bot\strategies\ml_open_range_breakout.py
 import backtrader as bt
 from .base_strategy import BaseStrategy
 import datetime
@@ -17,6 +18,7 @@ class MLOpenRangeBreakout(BaseStrategy):
         ('lookback_days', 20),
         ('model_file_path', None),
         ('probability_threshold', 0.70),
+        ('use_ml_filter', True),  # New parameter to control the ML filter
         ('feature_list', None),  # Will be populated from config
         ('feature_data', None),  # DataFrame with all pre-calculated features
     )
@@ -43,13 +45,17 @@ class MLOpenRangeBreakout(BaseStrategy):
         # Daily state variables
         self.reset_daily_vars()
         
-        # Load ML model
-        try:
-            self.model = joblib.load(self.p.model_file_path)
-            print(f"Successfully loaded model from {self.p.model_file_path}")
-        except Exception as e:
-            print(f"Error loading model: {e}")
-            self.model = None
+        # Load ML model only if enabled in parameters
+        self.model = None
+        if self.p.use_ml_filter:
+            try:
+                self.model = joblib.load(self.p.model_file_path)
+                self.log(f"Successfully loaded model from {self.p.model_file_path}")
+            except Exception as e:
+                self.log(f"Error loading model: {e}. ML filter will be skipped.")
+                self.model = None
+        else:
+            self.log("Meta labeling (ML filter) is turned OFF by configuration.")
 
     def reset_daily_vars(self):
         """Resets the state at the start of each new trading day."""
@@ -244,26 +250,35 @@ class MLOpenRangeBreakout(BaseStrategy):
                 self._handle_breakout_signal()
 
     def _handle_breakout_signal(self):
-        """Handle breakout signal using ML model - MATCHES PIPELINE LOGIC"""
+        """Handle breakout signal, with an option to bypass the ML model."""
+        # If ML filter is disabled, execute the trade directly.
+        if not self.p.use_ml_filter:
+            self.log("ML filter is OFF. Executing trade based on primary signal.")
+            self._execute_trade()
+            return
+
+        # --- ML Filter Logic (if enabled) ---
         if not self.model:
-            self.log("No model loaded, skipping ML filter")
+            self.log("ML filter is ON but no model is loaded. Skipping trade.")
+            self.trade_taken_today = True # Prevent retries today
             return
             
-        # Get features for ML prediction - MATCHES PIPELINE
+        # Get features for ML prediction
         features = self._get_feature_vector()
         
         if features is None:
-            self.log("Could not get feature vector, skipping trade")
+            self.log("Could not get feature vector for ML model, skipping trade.")
+            self.trade_taken_today = True # Prevent retries today
             return
             
         # Get ML probability
         prob = self.model.predict_proba(features)[0][1]
-        self.log(f"ML probability for breakout success: {prob:.2f}")
+        self.log(f"ML probability for breakout success: {prob:.4f}")
         
-        if prob > self.p.probability_threshold:
+        if prob >= self.p.probability_threshold:
             self._execute_trade()
         else:
-            self.log(f"ML Filter FAILED (prob={prob:.2f} < {self.p.probability_threshold:.2f}). Skipping trade.")
+            self.log(f"ML Filter SKIPPED trade (prob={prob:.4f} < {self.p.probability_threshold:.2f}).")
             self.trade_taken_today = True  # Prevent further signals today
 
     def _get_feature_vector(self):
@@ -360,15 +375,18 @@ class MLOpenRangeBreakout(BaseStrategy):
             return None
 
     def _execute_trade(self):
-        """Execute the trade based on breakout direction - MATCHES PIPELINE LOGIC"""
+        """Execute the trade based on breakout direction, with conditional logging."""
         range_size = self.opening_range_high - self.opening_range_low
         entry_price = self.data.close[0]
+        
+        # Determine the reason for the trade for clearer logs
+        reason = "ML Filter PASSED" if self.p.use_ml_filter else "Primary Signal (ML Filter OFF)"
         
         if self.breakout_direction == 1:  # Bullish breakout (long trade)
             tp_price = entry_price + (range_size * self.p.take_profit_multiplier)
             sl_price = entry_price - (range_size * self.p.stop_loss_multiplier)
             
-            self.log(f"ML Filter PASSED. BUY BRACKET @ {entry_price:.2f}, TP={tp_price:.2f}, SL={sl_price:.2f}")
+            self.log(f"{reason}. BUY BRACKET @ {entry_price:.2f}, TP={tp_price:.2f}, SL={sl_price:.2f}")
             
             # Use a bracket order to set take profit and stop loss automatically
             self.buy_bracket(
@@ -381,7 +399,7 @@ class MLOpenRangeBreakout(BaseStrategy):
             tp_price = entry_price - (range_size * self.p.take_profit_multiplier)
             sl_price = entry_price + (range_size * self.p.stop_loss_multiplier)
             
-            self.log(f"ML Filter PASSED. SELL BRACKET @ {entry_price:.2f}, TP={tp_price:.2f}, SL={sl_price:.2f}")
+            self.log(f"{reason}. SELL BRACKET @ {entry_price:.2f}, TP={tp_price:.2f}, SL={sl_price:.2f}")
             
             # Use a bracket order to set take profit and stop loss automatically
             self.sell_bracket(

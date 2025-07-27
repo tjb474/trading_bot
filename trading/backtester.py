@@ -4,6 +4,7 @@ import pandas as pd
 import logging
 from common.config import config
 from strategies import get_strategy
+from common.data_manager import convert_to_eastern_time  # Import the new function
 
 class Backtester:
     """Backtester class that handles running trading strategy backtests."""
@@ -23,42 +24,21 @@ class Backtester:
         logging.getLogger('matplotlib.font_manager').setLevel(logging.WARNING)
         logging.getLogger('matplotlib').setLevel(logging.WARNING)
         
-        # Data validation logging
+        # --- Data validation and Timezone alignment ---
         self.logger.info(f"Starting backtest with {len(test_data)} rows.")
-        self.logger.info(f"Columns: {list(test_data.columns)}")
-        self.logger.info(f"Data types:\n{test_data.dtypes}")
-        nan_counts = test_data.isnull().sum()
-        self.logger.info(f"NaN counts per column:\n{nan_counts}")
-        self.logger.info(f"First 5 rows:\n{test_data.head()}\n")
-
-        cerebro = bt.Cerebro()
         
-        # CRITICAL FIX: Ensure timezone consistency for backtrader
-        # First, convert UTC data to Eastern timezone before processing
-        if hasattr(test_data.index, 'tz') and test_data.index.tz is not None:
-            self.logger.info(f"Data timezone before conversion: {test_data.index.tz}")
-            
-            # Convert UTC to Eastern timezone
-            import pytz
-            eastern_tz = pytz.timezone('US/Eastern')
-            if 'UTC' in str(test_data.index.tz):
-                self.logger.info("Converting UTC data to Eastern timezone...")
-                test_data = test_data.copy()
-                test_data.index = test_data.index.tz_convert(eastern_tz)
-                self.logger.info(f"Data converted to: {test_data.index.tz}")
-                self.logger.info(f"Sample timestamps after timezone conversion: {test_data.index[:3].tolist()}")
-            
-            # Now convert to naive datetime but keep Eastern time values for backtrader
-            self.logger.info(f"Data timezone before backtrader: {test_data.index.tz}")
-            test_data_for_bt = test_data.copy()
-            test_data_for_bt.index = test_data_for_bt.index.tz_localize(None)
-            self.logger.info(f"Converted to naive Eastern time for backtrader")
-            self.logger.info(f"Sample timestamps after naive conversion: {test_data_for_bt.index[:3].tolist()}")
-            data_feed = bt.feeds.PandasData(dataname=test_data_for_bt)
-        else:
-            self.logger.info("Data has no timezone information")
-            data_feed = bt.feeds.PandasData(dataname=test_data)
-            
+        # REFACTORED: Use the centralized function to handle timezone conversion
+        test_data = convert_to_eastern_time(test_data)
+        
+        # Now, create the naive version specifically for backtrader's feed
+        test_data_for_bt = test_data.copy()
+        test_data_for_bt.index = test_data_for_bt.index.tz_localize(None)
+        self.logger.info(f"Converted to naive Eastern time for backtrader feed.")
+        self.logger.info(f"Sample naive timestamps for feed: {test_data_for_bt.index[:3].tolist()}")
+        
+        data_feed = bt.feeds.PandasData(dataname=test_data_for_bt)
+        
+        cerebro = bt.Cerebro()
         cerebro.adddata(data_feed)
         
         # --- Strategy Selection ---
@@ -97,11 +77,8 @@ class Backtester:
                 strategy_params[f'range_{key}'] = value
         
         # Pass the feature data to the strategy so it can access pre-calculated features
-        # Use the Eastern timezone version for accurate feature calculations
-        if 'test_data' in locals() and hasattr(test_data.index, 'tz') and test_data.index.tz is not None:
-            strategy_params['feature_data'] = test_data  # Eastern timezone version
-        else:
-            strategy_params['feature_data'] = test_data  # Original data
+        # Use the Eastern timezone version for accurate feature lookups
+        strategy_params['feature_data'] = test_data
         
         # Add strategy with its flattened parameters
         self.logger.info(f"Adding strategy with parameters: {strategy_params}")
