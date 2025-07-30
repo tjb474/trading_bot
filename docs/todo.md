@@ -2,6 +2,7 @@
 
 ## High Priority
 - [X] Much more data - model needs more anyway
+- [ ] Only taking long trades - enable short trades too (direction of breakout feature will support this)
 - [ ] Backtesting without meta labeling, to test the base strategy
 - [ ] Improve core strategy - see chat with gemini (regime)
 - [ ] Update KPI to an R:R or % gain, or something to do with ATR

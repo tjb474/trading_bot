@@ -135,4 +135,75 @@ class Backtester:
             self.logger.info("Total Return: N/A")
 
         self.logger.info("\nPlotting results...")
-        cerebro.plot(style='candlestick')
+        
+        # Debug: Show strategy name
+        self.logger.info(f"Strategy name for visualization: '{self.strategy_name}'")
+        
+        # Create enhanced ORB visualization if it's an ORB strategy
+        if 'open_range_breakout' in self.strategy_name.lower():
+            self.logger.info("ORB strategy detected - creating enhanced visualization...")
+            try:
+                self._create_orb_visualization(test_data, strat)
+                self.logger.info("Enhanced ORB visualization completed successfully!")
+                return  # Skip the standard plot
+            except Exception as e:
+                self.logger.error(f"Could not create ORB visualization: {e}")
+                import traceback
+                self.logger.error(f"Traceback: {traceback.format_exc()}")
+                # Fallback to standard plot
+                cerebro.plot(style='candlestick')
+        else:
+            self.logger.info("Non-ORB strategy detected - using standard plot")
+            cerebro.plot(style='candlestick')
+            
+    def _create_orb_visualization(self, price_data: pd.DataFrame, strategy_instance):
+        """Create enhanced ORB visualization with rectangles and trade markers."""
+        try:
+            from viz.backtest_orb_visualization import create_backtest_orb_chart
+            
+            # Get strategy configuration for ORB parameters
+            strategy_config = self.config.get_strategy_config(self.strategy_name)
+            range_start = strategy_config.get('range', {}).get('start', '09:30:00')
+            range_end = strategy_config.get('range', {}).get('end', '10:30:00')
+            
+            self.logger.info(f"ORB parameters: range_start={range_start}, range_end={range_end}")
+            
+            # Get trades history from strategy
+            trades_data = []
+            if hasattr(strategy_instance, 'get_trades_history'):
+                trades_data = strategy_instance.get_trades_history()
+                self.logger.info(f"Retrieved {len(trades_data)} trades from strategy")
+            else:
+                self.logger.warning("Strategy does not have get_trades_history method - no trade markers will be shown")
+            
+            # Create date range for visualization (last 30 days or backtest range)
+            backtest_params = self.config.trading_params
+            if backtest_params.get('backtest_start_date') and backtest_params.get('backtest_end_date'):
+                start_date = backtest_params['backtest_start_date']
+                end_date = backtest_params['backtest_end_date']
+            else:
+                # Use last 30 trading days
+                end_date = price_data.index[-1].strftime('%Y-%m-%d')
+                start_idx = max(0, len(price_data) - 7800)  # Approx 30 days of 1min data
+                start_date = price_data.index[start_idx].strftime('%Y-%m-%d')
+            
+            self.logger.info(f"Creating ORB visualization from {start_date} to {end_date}")
+            
+            # Create the enhanced chart
+            create_backtest_orb_chart(
+                price_data=price_data,
+                trades_data=trades_data,
+                range_start=range_start,
+                range_end=range_end,
+                start_date=start_date,
+                end_date=end_date,
+                timeframe='5min',  # Use 5min for better visualization
+                save_path=f"orb_backtest_results_{self.strategy_name}_{start_date}_to_{end_date}.png"
+            )
+            
+        except ImportError as e:
+            self.logger.error(f"ORB visualization dependencies not available: {e}")
+            raise
+        except Exception as e:
+            self.logger.error(f"Error creating ORB visualization: {e}")
+            raise
