@@ -124,9 +124,55 @@ def run_backtesting(strategy_name: str = None):
         full_df = create_features(full_df, feature_list, **feature_params)
 
     # 4. Splitting Data (optional, but good practice to separate test set)
-    # Note: The backtester will receive the test_df portion
-    split_ratio = config.trading_params.get('train_test_split_ratio', 0.8)
-    _, test_df = split_data(full_df, split_ratio)
+    # Check if we should use full date range or respect train/test split
+    use_full_range = trading_params.get('use_full_date_range', False)
+    strategy_config = config.get_strategy_config(active_strategy)
+    uses_ml_filter = strategy_config.get('model', {}).get('use_ml_filter', False)
+    
+    if backtest_start or backtest_end:
+        if use_full_range:
+            # Use all the filtered data for backtesting when explicitly requested
+            test_df = full_df
+            logger.info(f"Using all filtered data for backtesting: {len(test_df)} rows")
+            
+            # LOUD WARNING when using ML and full range
+            if uses_ml_filter:
+                logger.warning("=" * 80)
+                logger.warning("🚨 WARNING: BACKTESTING ON FULL DATE RANGE WITH ML MODEL ENABLED! 🚨")
+                logger.warning("You are backtesting over the ENTIRE date range, which may include")
+                logger.warning("data that was used to train the ML model. Results may be misleading!")
+                logger.warning("Consider setting 'use_full_date_range: false' in config.yaml")
+                logger.warning("to only backtest on the test portion of your date range.")
+                logger.warning("=" * 80)
+            else:
+                logger.info("ℹ️  Using full date range for backtesting (ML filter disabled)")
+        else:
+            # Apply train/test split even with specific dates (recommended for ML)
+            split_ratio = config.trading_params.get('train_test_split_ratio', 0.8)
+            _, test_df = split_data(full_df, split_ratio)
+            
+            # Calculate actual date range being used
+            actual_start = test_df.index.min().strftime('%Y-%m-%d')
+            actual_end = test_df.index.max().strftime('%Y-%m-%d')
+            
+            logger.info(f"Applying train/test split to filtered data:")
+            logger.info(f"  Requested range: {backtest_start} to {backtest_end}")
+            logger.info(f"  Actual backtest range: {actual_start} to {actual_end}")
+            logger.info(f"  Using {len(test_df)} rows (last {(1-split_ratio)*100:.0f}% of filtered data)")
+            
+            if uses_ml_filter:
+                logger.info("✅ Good practice: Using test portion only with ML model enabled")
+    else:
+        # No specific dates provided - use train/test split on full dataset
+        split_ratio = config.trading_params.get('train_test_split_ratio', 0.8)
+        _, test_df = split_data(full_df, split_ratio)
+        
+        actual_start = test_df.index.min().strftime('%Y-%m-%d')
+        actual_end = test_df.index.max().strftime('%Y-%m-%d')
+        
+        logger.info(f"No specific dates provided - using train/test split:")
+        logger.info(f"  Backtest range: {actual_start} to {actual_end}")
+        logger.info(f"  Using {len(test_df)} rows (last {(1-split_ratio)*100:.0f}% of full dataset)")
 
     # 5. Run backtest with the specified strategy
     bt = Backtester(config, active_strategy)
