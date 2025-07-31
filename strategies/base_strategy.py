@@ -32,14 +32,30 @@ class BaseStrategy(bt.Strategy):
         if order.status in [order.Completed]:
             if order.isbuy():
                 self.log(f'BUY EXECUTED, Price: {order.executed.price:.2f}, Cost: {order.executed.value:.2f}, Comm: {order.executed.comm:.2f}')
-                # Start tracking new long trade
-                self.current_trade = {
-                    'entry_time': self.data.datetime.datetime(0),
-                    'entry_price': order.executed.price,
-                    'direction': 1,  # Long
-                    'size': order.executed.size,
-                    'commission': order.executed.comm
-                }
+                # Could be opening long or closing short
+                if self.current_trade is None:
+                    # Opening long trade
+                    self.current_trade = {
+                        'entry_time': self.data.datetime.datetime(0),
+                        'entry_price': order.executed.price,
+                        'direction': 1,  # Long
+                        'size': order.executed.size,
+                        'commission': order.executed.comm
+                    }
+                else:
+                    # Closing existing trade (must be short)
+                    self.current_trade['exit_time'] = self.data.datetime.datetime(0)
+                    self.current_trade['exit_price'] = order.executed.price
+                    self.current_trade['commission'] += order.executed.comm
+                    
+                    # Calculate PnL for short trade
+                    pnl = (self.current_trade['entry_price'] - order.executed.price) * abs(self.current_trade['size'])
+                    self.current_trade['pnl'] = pnl - self.current_trade['commission']
+                    
+                    # Add to history and reset
+                    self.trades_history.append(self.current_trade.copy())
+                    self.current_trade = None
+                    
             elif order.issell():
                 self.log(f'SELL EXECUTED, Price: {order.executed.price:.2f}, Cost: {order.executed.value:.2f}, Comm: {order.executed.comm:.2f}')
                 # Could be opening short or closing long
@@ -53,17 +69,13 @@ class BaseStrategy(bt.Strategy):
                         'commission': order.executed.comm
                     }
                 else:
-                    # Closing existing trade
+                    # Closing existing trade (must be long)
                     self.current_trade['exit_time'] = self.data.datetime.datetime(0)
                     self.current_trade['exit_price'] = order.executed.price
                     self.current_trade['commission'] += order.executed.comm
                     
-                    # Calculate PnL
-                    if self.current_trade['direction'] == 1:  # Long trade
-                        pnl = (order.executed.price - self.current_trade['entry_price']) * self.current_trade['size']
-                    else:  # Short trade
-                        pnl = (self.current_trade['entry_price'] - order.executed.price) * abs(self.current_trade['size'])
-                    
+                    # Calculate PnL for long trade
+                    pnl = (order.executed.price - self.current_trade['entry_price']) * self.current_trade['size']
                     self.current_trade['pnl'] = pnl - self.current_trade['commission']
                     
                     # Add to history and reset
