@@ -2,8 +2,13 @@
 
 ## High Priority
 - [X] Much more data - model needs more anyway
-- [ ] Only taking long trades - enable short trades too (direction of breakout feature will support this)
-- [ ] Backtesting without meta labeling, to test the base strategy
+- [X] Only taking long trades - enable short trades too (direction of breakout feature will support this)
+- [X] Backtesting without meta labeling, to test the base strategy
+- [X] **Fix incorrect trade direction bug (June 11th case)** - Added validation and enhanced logging
+- [X] **Double check entry logic: close on or above the OR threshold** - Added breakout validation
+- [ ] Close the trade if TP or SL not hit by 4:55pm
+- [ ] Check that the entry is realistic i.e. on close of first bar outside OR  
+- [ ] TP and SL based on ATR
 - [ ] Improve core strategy - see chat with gemini (regime)
 - [ ] Update KPI to an R:R or % gain, or something to do with ATR
 - [ ] Ensemble model
@@ -29,3 +34,9 @@
 
 ## Notes
 - Add any additional notes or context here.
+
+## to check
+
+- Jun 5th - take profit is smaller than the OR
+- Jun 6th - long is triggered but price didn't rise above OR
+- Jun 11th - a short is triggered but price never closed below the OR

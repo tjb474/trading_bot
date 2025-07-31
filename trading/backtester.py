@@ -250,7 +250,7 @@ class Backtester:
                 range_end=range_end,
                 start_date=start_date,
                 end_date=end_date,
-                timeframe='5min',  # Use 5min for better visualization
+                timeframe='1min',  # Use 1min to match trading logic granularity
                 save_path=f"{charts_dir}/orb_backtest_results_{self.strategy_name}_{start_date}_to_{end_date}.png"
             )
             

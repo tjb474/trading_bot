@@ -202,8 +202,8 @@ class MLOpenRangeBreakout(BaseStrategy):
             self.opening_range_high = max(self.data.high[0], self.opening_range_high)
             self.opening_range_low = min(self.data.low[0], self.opening_range_low)
             
-            # Log when range values change significantly
-            if abs(self.opening_range_high - prev_high) > 0.5 or abs(self.opening_range_low - prev_low) > 0.5:
+            # Log every significant range update for debugging data consistency
+            if abs(self.opening_range_high - prev_high) > 0.01 or abs(self.opening_range_low - prev_low) > 0.01:
                 self.log(f"OR Update at {current_time}: H={self.opening_range_high:.2f} (was {prev_high:.2f}), L={self.opening_range_low:.2f} (was {prev_low:.2f})")
             
             return # Don't do anything else while in the range calculation window
@@ -236,18 +236,45 @@ class MLOpenRangeBreakout(BaseStrategy):
 
         # --- Phase 2: Breakout Detection (MATCHES PIPELINE LOGIC) ---
         if self.range_calculated_today and self.breakout_direction == 0:
+            current_price = self.data.close[0]
+            
+            # Add validation logging for data consistency
+            self.log(f"BREAKOUT CHECK: Price={current_price:.2f}, OR_High={self.opening_range_high:.2f}, OR_Low={self.opening_range_low:.2f}")
+            
             # Check for bullish breakout
-            if self.data.close[0] > self.opening_range_high:
+            if current_price > self.opening_range_high:
                 self.breakout_direction = 1  # Bullish
-                breakout_distance = self.data.close[0] - self.opening_range_high
-                self.log(f"BULLISH breakout detected at {self.data.close[0]:.2f} (OR High: {self.opening_range_high:.2f}, Distance: +${breakout_distance:.2f})")
+                breakout_distance = current_price - self.opening_range_high
+                self.log(f"BULLISH breakout detected at {current_price:.2f} (OR High: {self.opening_range_high:.2f}, Distance: +${breakout_distance:.2f})")
+                
+                # Additional validation: ensure price is clearly above OR high
+                if breakout_distance < 0.01:
+                    self.log(f"WARNING: Breakout distance very small ({breakout_distance:.4f}), potential data precision issue")
+                    
                 self._handle_breakout_signal()
+                
             # Check for bearish breakout
-            elif self.data.close[0] < self.opening_range_low:
+            elif current_price < self.opening_range_low:
                 self.breakout_direction = -1  # Bearish
-                breakout_distance = self.opening_range_low - self.data.close[0]
-                self.log(f"BEARISH breakout detected at {self.data.close[0]:.2f} (OR Low: {self.opening_range_low:.2f}, Distance: -${breakout_distance:.2f})")
+                breakout_distance = self.opening_range_low - current_price
+                self.log(f"BEARISH breakout detected at {current_price:.2f} (OR Low: {self.opening_range_low:.2f}, Distance: -${breakout_distance:.2f})")
+                
+                # Additional validation: ensure price is clearly below OR low
+                if breakout_distance < 0.01:
+                    self.log(f"WARNING: Breakout distance very small ({breakout_distance:.4f}), potential data precision issue")
+                    
                 self._handle_breakout_signal()
+                
+            # Log when price is inside range for debugging
+            elif self.opening_range_low <= current_price <= self.opening_range_high:
+                # Only log occasionally to avoid spam
+                if hasattr(self, '_last_inside_log_time'):
+                    time_diff = (datetime.datetime.now() - self._last_inside_log_time).total_seconds()
+                    if time_diff > 300:  # Log every 5 minutes when inside range
+                        self.log(f"Price ${current_price:.2f} still INSIDE range (${self.opening_range_low:.2f} - ${self.opening_range_high:.2f})")
+                        self._last_inside_log_time = datetime.datetime.now()
+                else:
+                    self._last_inside_log_time = datetime.datetime.now()
 
     def _handle_breakout_signal(self):
         """Handle breakout signal, with an option to bypass the ML model."""
@@ -380,6 +407,19 @@ class MLOpenRangeBreakout(BaseStrategy):
         range_size = self.opening_range_high - self.opening_range_low
         entry_price = self.data.close[0]
         
+        # CRITICAL VALIDATION: Verify breakout direction matches price position
+        if self.breakout_direction == 1 and entry_price <= self.opening_range_high:
+            self.log(f"🚨 CRITICAL ERROR: LONG signal but price ({entry_price:.2f}) not above OR high ({self.opening_range_high:.2f})!")
+            self.log(f"🚨 Skipping trade to prevent incorrect entry. Data consistency issue detected.")
+            self.trade_taken_today = True
+            return
+            
+        if self.breakout_direction == -1 and entry_price >= self.opening_range_low:
+            self.log(f"🚨 CRITICAL ERROR: SHORT signal but price ({entry_price:.2f}) not below OR low ({self.opening_range_low:.2f})!")
+            self.log(f"🚨 Skipping trade to prevent incorrect entry. Data consistency issue detected.")
+            self.trade_taken_today = True
+            return
+        
         # Store ORB data for trade reporting
         self.set_orb_data(self.opening_range_high, self.opening_range_low)
         
@@ -401,6 +441,7 @@ class MLOpenRangeBreakout(BaseStrategy):
             self.breakout_direction_label = 'BULLISH'
             
             self.log(f"{reason}. BUY BRACKET @ {entry_price:.2f}, TP={tp_price:.2f}, SL={sl_price:.2f}")
+            self.log(f"✅ LONG trade validated: Price {entry_price:.2f} > OR High {self.opening_range_high:.2f}")
             
             # Use a bracket order to set take profit and stop loss automatically
             self.buy_bracket(
@@ -419,6 +460,7 @@ class MLOpenRangeBreakout(BaseStrategy):
             self.breakout_direction_label = 'BEARISH'
             
             self.log(f"{reason}. SELL BRACKET @ {entry_price:.2f}, TP={tp_price:.2f}, SL={sl_price:.2f}")
+            self.log(f"✅ SHORT trade validated: Price {entry_price:.2f} < OR Low {self.opening_range_low:.2f}")
             
             # Use a bracket order to set take profit and stop loss automatically
             self.sell_bracket(

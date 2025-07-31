@@ -1,4 +1,37 @@
-# plot_ohlc.py
+# plot_ohlc.pydef resample_ohlc(df, timeframe):
+    """
+    Resample OHLC data to a different timeframe with proper market hour alignment.
+    
+    Args:
+        df: DataFrame with OHLCV data
+        timeframe: Target timeframe (e.g., '1min', '5min', '15min', 'H', 'D')
+        
+    Returns:
+    """
+    Resample OHLC data to a different timeframe with proper market hour alignment.
+    
+    Args:
+        df: DataFrame with OHLCV data
+        timeframe: Target timeframe (e.g., '1min', '5min', '15min', 'H', 'D')
+        
+    Returns:
+        Resampled DataFrame with OHLCV data
+    """
+    # CRITICAL FIX: Use proper parameters for market hour alignment
+    resampled = df.resample(
+        timeframe,
+        origin='start',  # Align with the start of the data
+        closed='left',   # Left-closed intervals
+        label='left'     # Label with the left boundary
+    ).agg({
+        'open': 'first',
+        'high': 'max',
+        'low': 'min',
+        'close': 'last',
+        'volume': 'sum'
+    }).dropna()
+    
+    return resampled
 
 import pandas as pd
 import mplfinance as mpf

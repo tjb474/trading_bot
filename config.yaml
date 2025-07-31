@@ -47,9 +47,9 @@ strategies:
     # Time Parameters
     range:
       start: "09:30:00"
-      end: "09:45:00"
+      end: "09:50:00"
     
-    # Risk Management
+    # Risk Management (relative to OR, from the entry price)
     risk:
       take_profit_multiplier: 1.0
       stop_loss_multiplier: 1.1

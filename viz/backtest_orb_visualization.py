@@ -21,7 +21,7 @@ class BacktestORBVisualizer:
     def __init__(self, 
                  range_start: str = "09:30:00", 
                  range_end: str = "10:30:00",
-                 timeframe: str = "5min"):
+                 timeframe: str = "1min"):
         self.range_start = range_start
         self.range_end = range_end
         self.timeframe = timeframe
@@ -85,7 +85,7 @@ class BacktestORBVisualizer:
             raise
             
     def _resample_data(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Resample OHLCV data to specified timeframe."""
+        """Resample OHLCV data to specified timeframe with proper market hour alignment."""
         # Standard OHLCV aggregation
         agg_dict = {
             'open': 'first',
@@ -107,8 +107,25 @@ class BacktestORBVisualizer:
                     agg_dict[col] = 'mean'  # Average for continuous numeric features
                 else:
                     agg_dict[col] = 'last'  # Default to last value for unknown types
-                    
-        return df.resample(self.timeframe).agg(agg_dict).dropna()
+        
+        # CRITICAL FIX: Use proper origin for market hour alignment
+        # This ensures 5-minute candles align with market hours (9:30, 9:35, 9:40, 9:45, etc.)
+        # instead of arbitrary 5-minute intervals that might include post-OR bars
+        
+        # Create market open origin with proper timezone matching
+        if hasattr(df.index, 'tz') and df.index.tz is not None:
+            # Use a date from the data to ensure timezone compatibility
+            sample_date = df.index[0].date()
+            market_open_origin = pd.Timestamp.combine(sample_date, pd.Timestamp('09:30:00').time()).tz_localize(df.index.tz)
+        else:
+            market_open_origin = '09:30:00'
+        
+        return df.resample(
+            self.timeframe, 
+            origin=market_open_origin,  # Align with market open time (timezone-aware)
+            closed='left',              # Left-closed intervals (9:30:00 to 9:34:59)
+            label='left'                # Label with the left boundary (9:30 for 9:30-9:35 candle)
+        ).agg(agg_dict).dropna()
     
     def _calculate_orb_rectangles(self, df: pd.DataFrame) -> List[Dict]:
         """Calculate ORB rectangle coordinates for each trading day."""
@@ -494,7 +511,7 @@ def create_backtest_orb_chart(price_data: pd.DataFrame,
                              range_end: str = "10:30:00", 
                              start_date: str = None,
                              end_date: str = None,
-                             timeframe: str = "5min",
+                             timeframe: str = "1min",
                              save_path: str = None) -> None:
     """
     Convenience function to create ORB backtest visualization.
