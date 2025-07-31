@@ -154,12 +154,25 @@ class TradeReporter:
         if self.config_data:
             print(f"\nSTRATEGY CONFIGURATION:")
             print("-" * 50)
+            
+            # Trading parameters
+            trading_params = self.config_data.get('trading', {})
+            if trading_params:
+                print("TRADING PARAMETERS:")
+                for key, value in trading_params.items():
+                    print(f"  {key}: {value}")
+                print()
+            
+            # Strategy-specific configuration
             strategy_config = self.config_data.get('strategies', {}).get(self.strategy_name, {})
             for section, params in strategy_config.items():
                 print(f"{section.upper()}:")
                 if isinstance(params, dict):
                     for key, value in params.items():
-                        print(f"  {key}: {value}")
+                        if isinstance(value, list):
+                            print(f"  {key}: {', '.join(map(str, value))}")
+                        else:
+                            print(f"  {key}: {value}")
                 else:
                     print(f"  {params}")
                 print()
@@ -283,20 +296,27 @@ class TradeReporter:
                 table {{ border-collapse: collapse; width: 100%; margin: 20px 0; }}
                 th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
                 th {{ background-color: #f2f2f2; }}
-                .stats-table {{ width: 70%; }}
+                .stats-table {{ width: 100%; }}
+                .config-table {{ width: 100%; }}
+                .side-by-side {{ display: flex; justify-content: space-between; gap: 20px; }}
+                .side-by-side > div {{ flex: 1; }}
                 .positive {{ color: green; }}
                 .negative {{ color: red; }}
                 .section-header {{ background-color: #e8f4fd; font-weight: bold; }}
+                .config-header {{ background-color: #f0f8ff; font-weight: bold; }}
                 h1, h2 {{ color: #333; }}
                 h3 {{ color: #555; margin-top: 30px; }}
+                .container {{ margin-bottom: 30px; }}
             </style>
         </head>
         <body>
             <h1>Trading Backtest Report</h1>
             <h2>Strategy: {self.strategy_name}</h2>
             
-            <h3>Summary Statistics</h3>
-            <table class="stats-table">
+            <div class="side-by-side">
+                <div>
+                    <h3>Summary Statistics</h3>
+                    <table class="stats-table">
         """
         
         # Add basic trade counts
@@ -355,7 +375,56 @@ class TradeReporter:
                 html_content += f'<tr><td><strong>{key}</strong></td><td class="{css_class}">{value_str}</td></tr>'
             
         html_content += """
-            </table>
+                    </table>
+                </div>
+                
+                <div>
+                    <h3>Configuration Metadata</h3>
+                    <table class="config-table">
+        """
+        
+        # Add backtest metadata
+        if self.backtest_metadata:
+            html_content += '<tr class="config-header"><td colspan="2">BACKTEST SETTINGS</td></tr>'
+            for key, value in self.backtest_metadata.items():
+                key_display = key.replace('_', ' ').title()
+                html_content += f'<tr><td><strong>{key_display}</strong></td><td>{value}</td></tr>'
+        
+        # Add strategy configuration from config.yaml
+        if self.config_data:
+            strategy_config = self.config_data.get('strategies', {}).get(self.strategy_name, {})
+            
+            # Trading parameters
+            trading_params = self.config_data.get('trading', {})
+            if trading_params:
+                html_content += '<tr class="config-header"><td colspan="2">TRADING PARAMETERS</td></tr>'
+                for key, value in trading_params.items():
+                    if key not in ['backtest_start_date', 'backtest_end_date']:  # These are in backtest metadata
+                        key_display = key.replace('_', ' ').title()
+                        html_content += f'<tr><td><strong>{key_display}</strong></td><td>{value}</td></tr>'
+            
+            # Strategy-specific configuration
+            for section_name, section_data in strategy_config.items():
+                if isinstance(section_data, dict):
+                    section_title = section_name.replace('_', ' ').upper()
+                    html_content += f'<tr class="config-header"><td colspan="2">{section_title}</td></tr>'
+                    
+                    for key, value in section_data.items():
+                        key_display = key.replace('_', ' ').title()
+                        # Handle list values (like feature_list)
+                        if isinstance(value, list):
+                            value_str = ', '.join(map(str, value))
+                        else:
+                            value_str = str(value)
+                        html_content += f'<tr><td><strong>{key_display}</strong></td><td>{value_str}</td></tr>'
+                else:
+                    key_display = section_name.replace('_', ' ').title()
+                    html_content += f'<tr><td><strong>{key_display}</strong></td><td>{section_data}</td></tr>'
+        
+        html_content += """
+                    </table>
+                </div>
+            </div>
             
             <h3>Detailed Trades</h3>
         """
