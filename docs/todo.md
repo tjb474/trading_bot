@@ -31,6 +31,7 @@
 - [ ] Class imbalance?
 - [ ] Task 2
 - [ ] More tickers - trade only the most likely?
+- [ ] Test - Exit - After 3pm if entry price reached, close trade
 
 ## Notes
 - Add any additional notes or context here.

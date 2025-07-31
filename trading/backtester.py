@@ -214,8 +214,9 @@ class Backtester:
             strategy_config = self.config.get_strategy_config(self.strategy_name)
             range_start = strategy_config.get('range', {}).get('start', '09:30:00')
             range_end = strategy_config.get('range', {}).get('end', '10:30:00')
+            daily_close_time = strategy_config.get('daily_close_time', '16:00:00')
             
-            self.logger.info(f"ORB parameters: range_start={range_start}, range_end={range_end}")
+            self.logger.info(f"ORB parameters: range_start={range_start}, range_end={range_end}, daily_close_time={daily_close_time}")
             
             # Get trades history from strategy
             trades_data = []

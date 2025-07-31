@@ -49,13 +49,15 @@ class BaseStrategy(bt.Strategy):
 
     def notify_order(self, order):
         """Enhanced order notification with trade tracking and reporting."""
+        current_time = self.data.datetime.time()
+        
         if order.status in [order.Submitted, order.Accepted]:
             # No action needed for these statuses
             return
 
         if order.status in [order.Completed]:
             if order.isbuy():
-                self.log(f'BUY EXECUTED, Price: {order.executed.price:.2f}, Cost: {order.executed.value:.2f}, Comm: {order.executed.comm:.2f}')
+                self.log(f'[{current_time}] BUY EXECUTED, Price: {order.executed.price:.2f}, Cost: {order.executed.value:.2f}, Comm: {order.executed.comm:.2f}')
                 # Could be opening long or closing short
                 if self.current_trade is None:
                     # Opening long trade
@@ -76,7 +78,7 @@ class BaseStrategy(bt.Strategy):
                     self._finalize_trade(order, 'SHORT')
                     
             elif order.issell():
-                self.log(f'SELL EXECUTED, Price: {order.executed.price:.2f}, Cost: {order.executed.value:.2f}, Comm: {order.executed.comm:.2f}')
+                self.log(f'[{current_time}] SELL EXECUTED, Price: {order.executed.price:.2f}, Cost: {order.executed.value:.2f}, Comm: {order.executed.comm:.2f}')
                 # Could be opening short or closing long
                 if self.current_trade is None:
                     # Opening short trade
@@ -99,13 +101,15 @@ class BaseStrategy(bt.Strategy):
             self.bar_executed = len(self)
 
         elif order.status in [order.Canceled, order.Margin, order.Rejected]:
-            self.log(f'Order Canceled/Margin/Rejected: {order.getstatusname()}')
+            self.log(f'[{current_time}] Order Canceled/Margin/Rejected: {order.getstatusname()}')
 
         # Reset order status
         self.order = None
         
     def _finalize_trade(self, order, closed_direction: str):
         """Finalize a completed trade and add to history/reporter."""
+        current_time = self.data.datetime.time()
+        
         self.current_trade['exit_time'] = self.data.datetime.datetime(0)
         self.current_trade['exit_price'] = order.executed.price
         self.current_trade['commission'] += order.executed.comm
@@ -137,7 +141,7 @@ class BaseStrategy(bt.Strategy):
         # Log trade summary for immediate feedback
         direction_str = "LONG" if self.current_trade['direction'] == 1 else "SHORT"
         pnl_str = f"+${self.current_trade['pnl']:.2f}" if self.current_trade['pnl'] > 0 else f"${self.current_trade['pnl']:.2f}"
-        self.log(f"TRADE COMPLETE: {direction_str} | P&L: {pnl_str} | Exit: {self.current_trade['exit_reason']}")
+        self.log(f"[{current_time}] TRADE COMPLETE: {direction_str} | P&L: {pnl_str} | Exit: {self.current_trade['exit_reason']}")
         
         # Add to trade reporter if available
         if self.trade_reporter:
@@ -170,10 +174,12 @@ class BaseStrategy(bt.Strategy):
         
     def notify_trade(self, trade):
         """Enhanced trade notification."""
+        current_time = self.data.datetime.time()
+        
         if not trade.isclosed:
             return
             
-        self.log(f'TRADE CLOSED: PnL=${trade.pnl:.2f}, Commission=${trade.commission:.2f}')
+        self.log(f'[{current_time}] TRADE CLOSED: PnL=${trade.pnl:.2f}, Commission=${trade.commission:.2f}')
         self.trade_count += 1
         
     def get_trades_history(self):
