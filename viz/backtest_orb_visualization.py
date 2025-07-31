@@ -314,6 +314,57 @@ class BacktestORBVisualizer:
             except Exception as e:
                 logger.warning(f"Could not add SL/TP lines for trade: {e}")
                 continue
+
+    def _add_entry_price_lines(self, ax, df: pd.DataFrame, trades_data: List[Dict]) -> None:
+        """Add entry price lines for each trade spanning only the trading day."""
+        if not trades_data:
+            return
+            
+        entry_line_added = False
+            
+        for trade in trades_data:
+            try:
+                entry_time = pd.to_datetime(trade['entry_time'])
+                exit_time = pd.to_datetime(trade['exit_time']) if trade.get('exit_time') else None
+                entry_price = trade['entry_price']
+                
+                # Match timezone if needed
+                if hasattr(df.index, 'tz') and df.index.tz is not None:
+                    if entry_time.tz is None:
+                        entry_time = entry_time.tz_localize(df.index.tz)
+                    if exit_time and exit_time.tz is None:
+                        exit_time = exit_time.tz_localize(df.index.tz)
+                
+                # Get the trading day
+                trade_date = entry_time.date()
+                
+                # Define day boundaries (market hours)
+                day_start = pd.Timestamp.combine(trade_date, pd.Timestamp("09:30:00").time())
+                day_end = pd.Timestamp.combine(trade_date, pd.Timestamp("16:00:00").time())
+                
+                # Localize if data has timezone
+                if hasattr(df.index, 'tz') and df.index.tz is not None:
+                    day_start = day_start.tz_localize(df.index.tz)
+                    day_end = day_end.tz_localize(df.index.tz)
+                
+                # Find start and end positions in the data
+                entry_pos = df.index.get_indexer([entry_time], method='nearest')[0]
+                if exit_time:
+                    end_time = min(exit_time, day_end)
+                    end_pos = df.index.get_indexer([end_time], method='nearest')[0]
+                else:
+                    end_pos = df.index.get_indexer([day_end], method='nearest')[0]
+                
+                if entry_pos >= 0 and end_pos >= 0 and end_pos > entry_pos:
+                    # Draw entry price line (blue)
+                    ax.plot([entry_pos, end_pos], [entry_price, entry_price],
+                           color='blue', linestyle='-', linewidth=2, alpha=0.7,
+                           label='Entry Price' if not entry_line_added else "")
+                    entry_line_added = True
+                        
+            except Exception as e:
+                logger.warning(f"Could not add entry price line for trade: {e}")
+                continue
     
     def _create_plot(self, df: pd.DataFrame, orb_rectangles: List[Dict], 
                     breakout_signals: Dict, trade_markers: Dict, 
@@ -356,7 +407,7 @@ class BacktestORBVisualizer:
                 f'Blue ↑ = Bullish Breakouts, Red ↓ = Bearish Breakouts\n'
                 f'Green ● = Long Entry, Orange ● = Short Entry | '
                 f'Green ✕ = Profit Exit, Red ✕ = Loss Exit\n'
-                f'Green -- = Take Profit Lines, Red -- = Stop Loss Lines (per trading day)')
+                f'Blue — = Entry Price, Green -- = Take Profit, Red -- = Stop Loss (per trading day)')
         
         # Create figure to add rectangles
         if ap:
@@ -391,9 +442,10 @@ class BacktestORBVisualizer:
         # Add ORB rectangles
         self._add_orb_rectangles(axes[0], orb_rectangles, df.index)
         
-        # Add SL/TP lines if we have trades data
+        # Add SL/TP lines and entry price lines if we have trades data
         if hasattr(self, 'trades_data') and self.trades_data:
             self._add_sl_tp_lines(axes[0], df, self.trades_data)
+            self._add_entry_price_lines(axes[0], df, self.trades_data)
         
         # Add legend
         self._add_legend(axes[0])
@@ -457,6 +509,7 @@ class BacktestORBVisualizer:
             plt.Line2D([0], [0], marker='o', color='w', markerfacecolor='orange', markersize=12, label='Short Entry'),
             plt.Line2D([0], [0], marker='X', color='w', markerfacecolor='darkgreen', markersize=10, label='Profit Exit'),
             plt.Line2D([0], [0], marker='X', color='w', markerfacecolor='darkred', markersize=10, label='Loss Exit'),
+            plt.Line2D([0], [0], color='blue', linestyle='-', linewidth=2, label='Entry Price'),
             plt.Line2D([0], [0], color='green', linestyle='--', linewidth=2, label='Take Profit'),
             plt.Line2D([0], [0], color='red', linestyle='--', linewidth=2, label='Stop Loss'),
         ]
