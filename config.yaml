@@ -47,12 +47,12 @@ strategies:
     # Time Parameters
     range:
       start: "09:30:00"
-      end: "10:00:00"
+      end: "09:45:00"
     
     # Risk Management
     risk:
       take_profit_multiplier: 1.0
-      stop_loss_multiplier: 0.5
+      stop_loss_multiplier: 1.1
     
     # Feature Engineering
     features:

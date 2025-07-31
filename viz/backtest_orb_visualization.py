@@ -25,6 +25,7 @@ class BacktestORBVisualizer:
         self.range_start = range_start
         self.range_end = range_end
         self.timeframe = timeframe
+        self.trades_data = None  # Store trades data for summary calculations
         
     def create_enhanced_backtest_chart(self, 
                                      price_data: pd.DataFrame,
@@ -48,6 +49,9 @@ class BacktestORBVisualizer:
             save_path: Optional path to save the chart
         """
         try:
+            # Store trades data for summary calculations
+            self.trades_data = trades_data
+            
             # Filter data by date range if specified
             if start_date and end_date:
                 plot_df = price_data.loc[start_date:end_date].copy()
@@ -181,6 +185,9 @@ class BacktestORBVisualizer:
             'exits_loss': pd.Series(index=df.index, dtype=float)
         }
         
+        # Store trades data for summary calculations and SL/TP lines
+        self.trades_data = trades_data
+        
         for trade in trades_data:
             try:
                 # Parse trade timestamps
@@ -227,6 +234,69 @@ class BacktestORBVisualizer:
                 continue
                 
         return markers
+
+    def _add_sl_tp_lines(self, ax, df: pd.DataFrame, trades_data: List[Dict]) -> None:
+        """Add stop loss and take profit lines for each trade spanning only the trading day."""
+        if not trades_data:
+            return
+            
+        tp_line_added = False
+        sl_line_added = False
+            
+        for trade in trades_data:
+            try:
+                entry_time = pd.to_datetime(trade['entry_time'])
+                exit_time = pd.to_datetime(trade['exit_time']) if trade.get('exit_time') else None
+                
+                # Match timezone if needed
+                if hasattr(df.index, 'tz') and df.index.tz is not None:
+                    if entry_time.tz is None:
+                        entry_time = entry_time.tz_localize(df.index.tz)
+                    if exit_time and exit_time.tz is None:
+                        exit_time = exit_time.tz_localize(df.index.tz)
+                
+                # Get the trading day
+                trade_date = entry_time.date()
+                
+                # Define day boundaries (market hours)
+                day_start = pd.Timestamp.combine(trade_date, pd.Timestamp("09:30:00").time())
+                day_end = pd.Timestamp.combine(trade_date, pd.Timestamp("16:00:00").time())
+                
+                # Localize if data has timezone
+                if hasattr(df.index, 'tz') and df.index.tz is not None:
+                    day_start = day_start.tz_localize(df.index.tz)
+                    day_end = day_end.tz_localize(df.index.tz)
+                
+                # Find start and end positions in the data
+                entry_pos = df.index.get_indexer([entry_time], method='nearest')[0]
+                if exit_time:
+                    end_time = min(exit_time, day_end)
+                    end_pos = df.index.get_indexer([end_time], method='nearest')[0]
+                else:
+                    end_pos = df.index.get_indexer([day_end], method='nearest')[0]
+                
+                if entry_pos >= 0 and end_pos >= 0 and end_pos > entry_pos:
+                    # Get SL/TP levels
+                    take_profit = trade.get('take_profit')
+                    stop_loss = trade.get('stop_loss')
+                    
+                    # Draw take profit line (green)
+                    if take_profit:
+                        ax.plot([entry_pos, end_pos], [take_profit, take_profit], 
+                               color='green', linestyle='--', linewidth=1.5, alpha=0.6,
+                               label='Take Profit' if not tp_line_added else "")
+                        tp_line_added = True
+                    
+                    # Draw stop loss line (red) 
+                    if stop_loss:
+                        ax.plot([entry_pos, end_pos], [stop_loss, stop_loss],
+                               color='red', linestyle='--', linewidth=1.5, alpha=0.6,
+                               label='Stop Loss' if not sl_line_added else "")
+                        sl_line_added = True
+                        
+            except Exception as e:
+                logger.warning(f"Could not add SL/TP lines for trade: {e}")
+                continue
     
     def _create_plot(self, df: pd.DataFrame, orb_rectangles: List[Dict], 
                     breakout_signals: Dict, trade_markers: Dict, 
@@ -268,7 +338,8 @@ class BacktestORBVisualizer:
                 f'Range: {self.range_start} to {self.range_end} | '
                 f'Blue ↑ = Bullish Breakouts, Red ↓ = Bearish Breakouts\n'
                 f'Green ● = Long Entry, Orange ● = Short Entry | '
-                f'Green ✕ = Profit Exit, Red ✕ = Loss Exit')
+                f'Green ✕ = Profit Exit, Red ✕ = Loss Exit\n'
+                f'Green -- = Take Profit Lines, Red -- = Stop Loss Lines (per trading day)')
         
         # Create figure to add rectangles
         if ap:
@@ -302,6 +373,10 @@ class BacktestORBVisualizer:
         
         # Add ORB rectangles
         self._add_orb_rectangles(axes[0], orb_rectangles, df.index)
+        
+        # Add SL/TP lines if we have trades data
+        if hasattr(self, 'trades_data') and self.trades_data:
+            self._add_sl_tp_lines(axes[0], df, self.trades_data)
         
         # Add legend
         self._add_legend(axes[0])
@@ -365,6 +440,8 @@ class BacktestORBVisualizer:
             plt.Line2D([0], [0], marker='o', color='w', markerfacecolor='orange', markersize=12, label='Short Entry'),
             plt.Line2D([0], [0], marker='X', color='w', markerfacecolor='darkgreen', markersize=10, label='Profit Exit'),
             plt.Line2D([0], [0], marker='X', color='w', markerfacecolor='darkred', markersize=10, label='Loss Exit'),
+            plt.Line2D([0], [0], color='green', linestyle='--', linewidth=2, label='Take Profit'),
+            plt.Line2D([0], [0], color='red', linestyle='--', linewidth=2, label='Stop Loss'),
         ]
         
         ax.legend(handles=legend_elements, loc='upper left', fontsize=10)
@@ -392,9 +469,18 @@ class BacktestORBVisualizer:
             logger.info(f"Total Trades: {total_trades} ({long_entries} long, {short_entries} short)")
             logger.info(f"Total Exits: {total_exits} ({profit_exits} profit, {loss_exits} loss)")
             
-            if total_exits > 0:
-                win_rate = profit_exits / total_exits * 100
-                logger.info(f"Win Rate: {win_rate:.1f}%")
+            # Calculate win rate based on actual PnL (including commissions)
+            # This matches the trade reporter's calculation method
+            if hasattr(self, 'trades_data') and self.trades_data:
+                profitable_trades = sum(1 for trade in self.trades_data if trade.get('pnl', 0) > 0)
+                if total_trades > 0:
+                    win_rate = profitable_trades / total_trades * 100
+                    logger.info(f"Win Rate (by PnL): {win_rate:.1f}%")
+            else:
+                # Fallback to exit-based calculation if trade data not available
+                if total_exits > 0:
+                    win_rate = profit_exits / total_exits * 100
+                    logger.info(f"Win Rate (by exit type): {win_rate:.1f}%")
         
         # Average range size
         if rectangles:

@@ -20,3 +20,15 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+
+# Generated reports and charts
+reports/exports/
+reports/charts/
+
+# Data files
+*.csv
+*.png
+*.html
+*.json
+!config.json
+!requirements.json

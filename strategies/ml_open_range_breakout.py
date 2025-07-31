@@ -273,6 +273,7 @@ class MLOpenRangeBreakout(BaseStrategy):
             
         # Get ML probability
         prob = self.model.predict_proba(features)[0][1]
+        self._last_ml_prob = prob  # Store for trade reporting
         self.log(f"ML probability for breakout success: {prob:.4f}")
         
         if prob >= self.p.probability_threshold:
@@ -379,12 +380,25 @@ class MLOpenRangeBreakout(BaseStrategy):
         range_size = self.opening_range_high - self.opening_range_low
         entry_price = self.data.close[0]
         
+        # Store ORB data for trade reporting
+        self.set_orb_data(self.opening_range_high, self.opening_range_low)
+        
+        # Store trade setup information for reporting
+        self.current_tp = None
+        self.current_sl = None
+        self.last_ml_probability = getattr(self, '_last_ml_prob', None)
+        
         # Determine the reason for the trade for clearer logs
         reason = "ML Filter PASSED" if self.p.use_ml_filter else "Primary Signal (ML Filter OFF)"
         
         if self.breakout_direction == 1:  # Bullish breakout (long trade)
             tp_price = entry_price + (range_size * self.p.take_profit_multiplier)
             sl_price = entry_price - (range_size * self.p.stop_loss_multiplier)
+            
+            # Store for trade reporting
+            self.current_tp = tp_price
+            self.current_sl = sl_price
+            self.breakout_direction_label = 'BULLISH'
             
             self.log(f"{reason}. BUY BRACKET @ {entry_price:.2f}, TP={tp_price:.2f}, SL={sl_price:.2f}")
             
@@ -398,6 +412,11 @@ class MLOpenRangeBreakout(BaseStrategy):
         elif self.breakout_direction == -1:  # Bearish breakout (short trade)
             tp_price = entry_price - (range_size * self.p.take_profit_multiplier)
             sl_price = entry_price + (range_size * self.p.stop_loss_multiplier)
+            
+            # Store for trade reporting
+            self.current_tp = tp_price
+            self.current_sl = sl_price
+            self.breakout_direction_label = 'BEARISH'
             
             self.log(f"{reason}. SELL BRACKET @ {entry_price:.2f}, TP={tp_price:.2f}, SL={sl_price:.2f}")
             

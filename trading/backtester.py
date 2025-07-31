@@ -2,9 +2,11 @@
 import backtrader as bt
 import pandas as pd
 import logging
+import os
 from common.config import config
 from strategies import get_strategy
 from common.data_manager import convert_to_eastern_time  # Import the new function
+from reports.trade_reporter import TradeReporter
 
 class Backtester:
     """Backtester class that handles running trading strategy backtests."""
@@ -14,6 +16,7 @@ class Backtester:
         self.config = config
         self.strategy_name = strategy_name or config.active_strategy
         self.logger = logging.getLogger("Backtester")
+        self.trade_reporter = None
         
     def run(self, test_data: pd.DataFrame):
         """Run a backtest with the given test data."""
@@ -80,12 +83,32 @@ class Backtester:
         # Use the Eastern timezone version for accurate feature lookups
         strategy_params['feature_data'] = test_data
         
+        # Initialize trade reporter
+        self.trade_reporter = TradeReporter(
+            strategy_name=self.strategy_name,
+            config_data=self.config.yaml_data  # Access the yaml data directly
+        )
+        
+        # Get trading params before using them
+        trading_params = self.config.trading_params
+        
+        # Set backtest metadata
+        backtest_metadata = {
+            'strategy': self.strategy_name,
+            'start_date': test_data.index[0].strftime('%Y-%m-%d'),
+            'end_date': test_data.index[-1].strftime('%Y-%m-%d'),
+            'total_bars': len(test_data),
+            'initial_cash': trading_params['initial_cash'],
+            'stake_size': trading_params['stake_size'],
+            'commission_spread_points': trading_params['commission_spread_points']
+        }
+        self.trade_reporter.set_backtest_metadata(backtest_metadata)
+        
         # Add strategy with its flattened parameters
         self.logger.info(f"Adding strategy with parameters: {strategy_params}")
         cerebro.addstrategy(StrategyClass, **strategy_params)
         
         # --- Broker Setup ---
-        trading_params = self.config.trading_params
         cerebro.broker.setcash(trading_params['initial_cash'])
         cerebro.addsizer(bt.sizers.FixedSize, stake=trading_params['stake_size'])
         
@@ -108,6 +131,16 @@ class Backtester:
         
         # --- Process Results ---
         strat = results[0]
+        
+        # Now we need to manually process the trades from the strategy
+        # The trades_history should contain all the trades we need
+        if hasattr(strat, 'trades_history') and strat.trades_history:
+            self.logger.info(f"Processing {len(strat.trades_history)} trades from strategy history")
+            for trade in strat.trades_history:
+                self.trade_reporter.add_trade(trade)
+        else:
+            self.logger.warning("No trades found in strategy history")
+        
         analysis = strat.analyzers
         
         self.logger.info('\n--- Backtest Results ---')
@@ -134,6 +167,21 @@ class Backtester:
         else:
             self.logger.info("Total Return: N/A")
 
+        # --- Generate Trade Report FIRST (before visualization) ---
+        self.logger.info("\n--- Generating Trade Report ---")
+        
+        # Print detailed trade report to console
+        self.trade_reporter.print_detailed_report(max_trades=50)
+        
+        # Export reports to files
+        try:
+            self.trade_reporter.export_to_csv()
+            self.trade_reporter.export_to_html()
+            self.trade_reporter.save_metadata()
+            self.logger.info("Trade reports exported successfully")
+        except Exception as e:
+            self.logger.warning(f"Error exporting trade reports: {e}")
+
         self.logger.info("\nPlotting results...")
         
         # Debug: Show strategy name
@@ -145,7 +193,6 @@ class Backtester:
             try:
                 self._create_orb_visualization(test_data, strat)
                 self.logger.info("Enhanced ORB visualization completed successfully!")
-                return  # Skip the standard plot
             except Exception as e:
                 self.logger.error(f"Could not create ORB visualization: {e}")
                 import traceback
@@ -155,6 +202,8 @@ class Backtester:
         else:
             self.logger.info("Non-ORB strategy detected - using standard plot")
             cerebro.plot(style='candlestick')
+            
+        return self.trade_reporter
             
     def _create_orb_visualization(self, price_data: pd.DataFrame, strategy_instance):
         """Create enhanced ORB visualization with rectangles and trade markers."""
@@ -189,6 +238,10 @@ class Backtester:
             
             self.logger.info(f"Creating ORB visualization from {start_date} to {end_date}")
             
+            # Create reports directory for charts
+            charts_dir = "reports/charts"
+            os.makedirs(charts_dir, exist_ok=True)
+            
             # Create the enhanced chart
             create_backtest_orb_chart(
                 price_data=price_data,
@@ -198,7 +251,7 @@ class Backtester:
                 start_date=start_date,
                 end_date=end_date,
                 timeframe='5min',  # Use 5min for better visualization
-                save_path=f"orb_backtest_results_{self.strategy_name}_{start_date}_to_{end_date}.png"
+                save_path=f"{charts_dir}/orb_backtest_results_{self.strategy_name}_{start_date}_to_{end_date}.png"
             )
             
         except ImportError as e:
