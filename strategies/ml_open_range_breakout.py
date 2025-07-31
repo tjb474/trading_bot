@@ -134,26 +134,40 @@ class MLOpenRangeBreakout(BaseStrategy):
             self.log(f"[{current_time}] Invalid range size ({range_size:.2f}). Skipping trade.")
             return
 
+        # Store ORB data for trade tracking (needed for base strategy)
+        self.set_orb_data(self.opening_range_high, self.opening_range_low)
+
         # self.active_bracket_orders will now correctly be a LIST of 3 orders
         if self.breakout_direction == 1:
             tp_price = entry_price + (range_size * self.p.take_profit_multiplier)
             sl_price = entry_price - (range_size * self.p.stop_loss_multiplier)
+            
+            # Store for trade tracking
+            self.current_tp = tp_price
+            self.current_sl = sl_price
+            self.breakout_direction_label = 'BULLISH'
+            
             self.log(f"[{current_time}] Submitting BUY BRACKET: Entry={entry_price:.2f}, TP={tp_price:.2f}, SL={sl_price:.2f}")
             self.active_bracket_orders = self.buy_bracket(limitprice=tp_price, stopprice=sl_price)
         elif self.breakout_direction == -1:
             tp_price = entry_price - (range_size * self.p.take_profit_multiplier)
             sl_price = entry_price + (range_size * self.p.stop_loss_multiplier)
+            
+            # Store for trade tracking
+            self.current_tp = tp_price
+            self.current_sl = sl_price
+            self.breakout_direction_label = 'BEARISH'
+            
             self.log(f"[{current_time}] Submitting SELL BRACKET: Entry={entry_price:.2f}, TP={tp_price:.2f}, SL={sl_price:.2f}")
             self.active_bracket_orders = self.sell_bracket(limitprice=tp_price, stopprice=sl_price)
 
     def notify_order(self, order):
         current_time = self.data.datetime.time()
+        
+        # Call base strategy's notify_order for proper trade tracking
+        super().notify_order(order)
+        
         if order.status in [order.Completed]:
-            if order.isbuy():
-                self.log(f"[{current_time}] BUY EXECUTED, Price: {order.executed.price:.2f}, Cost: {order.executed.value:.2f}, Comm: {order.executed.comm:.2f}")
-            elif order.issell():
-                self.log(f"[{current_time}] SELL EXECUTED, Price: {order.executed.price:.2f}, Cost: {order.executed.value:.2f}, Comm: {order.executed.comm:.2f}")
-            
             # --- FIX: Check if the completed order is IN the list of active orders ---
             if self.active_bracket_orders and order in self.active_bracket_orders:
                  # If a TP/SL is hit, the trade is over. Clear the stored orders.
@@ -163,17 +177,18 @@ class MLOpenRangeBreakout(BaseStrategy):
                     self.active_bracket_orders = None
 
         elif order.status in [order.Canceled, order.Margin, order.Rejected]:
-            self.log(f'[{current_time}] Order Canceled/Margin/Rejected.')
             # --- FIX: Check if the canceled order is IN the list ---
             if self.active_bracket_orders and order in self.active_bracket_orders:
                  self.log(f'[{current_time}] An active bracket order was canceled. Clearing.')
                  self.active_bracket_orders = None
 
     def notify_trade(self, trade):
+        # Call base strategy's notify_trade for proper trade tracking
+        super().notify_trade(trade)
+        
         if not trade.isclosed:
             return
         current_time = self.data.datetime.time()
-        self.log(f"[{current_time}] TRADE CLOSED: PnL={trade.pnlcomm:.2f}")
         self.active_bracket_orders = None # Final cleanup
 
     def _calculate_daily_features(self):

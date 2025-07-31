@@ -199,7 +199,8 @@ class BacktestORBVisualizer:
             'entries_long': pd.Series(index=df.index, dtype=float),
             'entries_short': pd.Series(index=df.index, dtype=float), 
             'exits_profit': pd.Series(index=df.index, dtype=float),
-            'exits_loss': pd.Series(index=df.index, dtype=float)
+            'exits_loss': pd.Series(index=df.index, dtype=float),
+            'exits_eod': pd.Series(index=df.index, dtype=float)  # New EOD exit marker
         }
         
         # Store trades data for summary calculations and SL/TP lines
@@ -237,14 +238,27 @@ class BacktestORBVisualizer:
                             exit_idx = df.index[exit_idx]
                             exit_price = trade['exit_price']
                             
-                            # Determine if profit or loss
-                            is_profit = ((trade['direction'] > 0 and exit_price > entry_price) or 
-                                       (trade['direction'] < 0 and exit_price < entry_price))
+                            # Use actual exit_reason from trade data if available
+                            exit_reason = trade.get('exit_reason', 'UNKNOWN')
                             
-                            if is_profit:
+                            if exit_reason == 'TP':
+                                # Take Profit exit
                                 markers['exits_profit'].loc[exit_idx] = exit_price * 1.002
-                            else:
+                            elif exit_reason == 'SL':
+                                # Stop Loss exit  
                                 markers['exits_loss'].loc[exit_idx] = exit_price * 0.998
+                            elif exit_reason == 'OTHER':
+                                # EOD or other manual close
+                                markers['exits_eod'].loc[exit_idx] = exit_price * 1.001
+                            else:
+                                # Fallback to price-based determination for unknown exit reasons
+                                is_profit = ((trade['direction'] > 0 and exit_price > entry_price) or 
+                                           (trade['direction'] < 0 and exit_price < entry_price))
+                                
+                                if is_profit:
+                                    markers['exits_profit'].loc[exit_idx] = exit_price * 1.002
+                                else:
+                                    markers['exits_loss'].loc[exit_idx] = exit_price * 0.998
                                 
             except Exception as e:
                 logger.warning(f"Could not process trade: {e}")
@@ -400,13 +414,17 @@ class BacktestORBVisualizer:
             if trade_markers['exits_loss'].notna().any():
                 ap.append(mpf.make_addplot(trade_markers['exits_loss'], type='scatter',
                                          marker='X', markersize=80, color='darkred', alpha=0.9))
+                                         
+            if trade_markers['exits_eod'].notna().any():
+                ap.append(mpf.make_addplot(trade_markers['exits_eod'], type='scatter',
+                                         marker='D', markersize=60, color='orange', alpha=0.9))
         
         # Create title
         title = (f'Enhanced ORB Backtest Analysis {title_suffix}\n'
                 f'Range: {self.range_start} to {self.range_end} | '
                 f'Blue ↑ = Bullish Breakouts, Red ↓ = Bearish Breakouts\n'
                 f'Green ● = Long Entry, Orange ● = Short Entry | '
-                f'Green ✕ = Profit Exit, Red ✕ = Loss Exit\n'
+                f'Green ✕ = TP Exit, Red ✕ = SL Exit, Orange ◆ = EOD Exit\n'
                 f'Blue — = Entry Price, Green -- = Take Profit, Red -- = Stop Loss (per trading day)')
         
         # Create figure to add rectangles
@@ -446,6 +464,9 @@ class BacktestORBVisualizer:
         if hasattr(self, 'trades_data') and self.trades_data:
             self._add_sl_tp_lines(axes[0], df, self.trades_data)
             self._add_entry_price_lines(axes[0], df, self.trades_data)
+            
+        # Add EOD close time lines
+        self._add_eod_close_lines(axes[0], df)
         
         # Add legend
         self._add_legend(axes[0])
@@ -498,6 +519,41 @@ class BacktestORBVisualizer:
             except Exception as e:
                 logger.warning(f"Could not add rectangle for {rect['date']}: {e}")
                 continue
+
+    def _add_eod_close_lines(self, ax, df: pd.DataFrame) -> None:
+        """Add vertical lines at 4:00 PM (EOD close time) for each trading day."""
+        try:
+            eod_line_added = False
+            
+            # Group by trading day
+            for date, day_data in df.groupby(df.index.date):
+                # Define EOD close time (4:00 PM)
+                eod_time = pd.Timestamp.combine(date, pd.Timestamp("16:00:00").time())
+                
+                # Localize if data has timezone
+                if hasattr(df.index, 'tz') and df.index.tz is not None:
+                    eod_time = eod_time.tz_localize(df.index.tz)
+                
+                # Find the closest data point to 4:00 PM
+                day_mask = day_data.index.date == date
+                day_data_filtered = df[day_mask]
+                
+                if len(day_data_filtered) > 0:
+                    # Find closest timestamp to 4:00 PM
+                    closest_idx = day_data_filtered.index.get_indexer([eod_time], method='nearest')[0]
+                    if closest_idx >= 0:
+                        eod_position = day_data_filtered.index[closest_idx]
+                        
+                        # Convert to numeric position for plotting
+                        numeric_position = df.index.get_loc(eod_position)
+                        
+                        # Draw vertical line at 4:00 PM
+                        ax.axvline(x=numeric_position, color='gray', linestyle=':', alpha=0.6, linewidth=1,
+                                  label='EOD Close (4:00 PM)' if not eod_line_added else "")
+                        eod_line_added = True
+                        
+        except Exception as e:
+            logger.warning(f"Could not add EOD close lines: {e}")
     
     def _add_legend(self, ax) -> None:
         """Add comprehensive legend to the plot."""
@@ -507,11 +563,13 @@ class BacktestORBVisualizer:
             plt.Line2D([0], [0], marker='v', color='w', markerfacecolor='red', markersize=10, label='Bearish Breakout'),
             plt.Line2D([0], [0], marker='o', color='w', markerfacecolor='green', markersize=12, label='Long Entry'),
             plt.Line2D([0], [0], marker='o', color='w', markerfacecolor='orange', markersize=12, label='Short Entry'),
-            plt.Line2D([0], [0], marker='X', color='w', markerfacecolor='darkgreen', markersize=10, label='Profit Exit'),
-            plt.Line2D([0], [0], marker='X', color='w', markerfacecolor='darkred', markersize=10, label='Loss Exit'),
+            plt.Line2D([0], [0], marker='X', color='w', markerfacecolor='darkgreen', markersize=10, label='TP Exit'),
+            plt.Line2D([0], [0], marker='X', color='w', markerfacecolor='darkred', markersize=10, label='SL Exit'),
+            plt.Line2D([0], [0], marker='D', color='w', markerfacecolor='orange', markersize=8, label='EOD Exit'),
             plt.Line2D([0], [0], color='blue', linestyle='-', linewidth=2, label='Entry Price'),
             plt.Line2D([0], [0], color='green', linestyle='--', linewidth=2, label='Take Profit'),
             plt.Line2D([0], [0], color='red', linestyle='--', linewidth=2, label='Stop Loss'),
+            plt.Line2D([0], [0], color='gray', linestyle=':', linewidth=1, label='EOD Close (4:00 PM)'),
         ]
         
         ax.legend(handles=legend_elements, loc='upper left', fontsize=10)
@@ -532,12 +590,20 @@ class BacktestORBVisualizer:
             short_entries = trade_markers['entries_short'].notna().sum()
             profit_exits = trade_markers['exits_profit'].notna().sum()
             loss_exits = trade_markers['exits_loss'].notna().sum()
+            eod_exits = trade_markers['exits_eod'].notna().sum()
             
             total_trades = long_entries + short_entries
-            total_exits = profit_exits + loss_exits
+            total_exits = profit_exits + loss_exits + eod_exits
             
             logger.info(f"Total Trades: {total_trades} ({long_entries} long, {short_entries} short)")
-            logger.info(f"Total Exits: {total_exits} ({profit_exits} profit, {loss_exits} loss)")
+            logger.info(f"Total Exits: {total_exits} ({profit_exits} TP, {loss_exits} SL, {eod_exits} EOD)")
+            
+            # Exit breakdown percentages
+            if total_exits > 0:
+                tp_pct = profit_exits / total_exits * 100
+                sl_pct = loss_exits / total_exits * 100
+                eod_pct = eod_exits / total_exits * 100
+                logger.info(f"Exit Breakdown: {tp_pct:.1f}% TP, {sl_pct:.1f}% SL, {eod_pct:.1f}% EOD")
             
             # Calculate win rate based on actual PnL (including commissions)
             # This matches the trade reporter's calculation method

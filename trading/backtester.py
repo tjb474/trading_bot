@@ -106,7 +106,11 @@ class Backtester:
         
         # Add strategy with its flattened parameters
         self.logger.info(f"Adding strategy with parameters: {strategy_params}")
-        cerebro.addstrategy(StrategyClass, **strategy_params)
+        strategy_instance = cerebro.addstrategy(StrategyClass, **strategy_params)
+        
+        # Connect the trade reporter to the strategy if it supports it
+        # Note: cerebro.addstrategy returns a class reference, not instance
+        # We'll set the reporter after cerebro.run() when we have the actual instance
         
         # --- Broker Setup ---
         cerebro.broker.setcash(trading_params['initial_cash'])
@@ -131,6 +135,11 @@ class Backtester:
         
         # --- Process Results ---
         strat = results[0]
+        
+        # Connect the trade reporter to the strategy instance
+        if hasattr(strat, 'set_trade_reporter'):
+            strat.set_trade_reporter(self.trade_reporter)
+            self.logger.info("Connected trade reporter to strategy")
         
         # Now we need to manually process the trades from the strategy
         # The trades_history should contain all the trades we need
