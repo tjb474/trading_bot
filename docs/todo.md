@@ -15,6 +15,7 @@
 - [ ] Feature Selection
 
 ## Medium Priority
+- [ ] Feature - Size of range relative to previous day/week/month - might stop situ of large OR, then fake break, massive SL
 - [ ] Feature - Day of week
 - [ ] Feature - Time of year
 - [ ] Feature - Session Gap?

@@ -22,6 +22,7 @@ class MLOpenRangeBreakout(BaseStrategy):
         ('use_ml_filter', True),
         ('feature_list', None),
         ('feature_data', None),
+        ('entry_type', 'conservative'),  # 'aggressive' or 'conservative'
     )
 
     def __init__(self):
@@ -62,6 +63,7 @@ class MLOpenRangeBreakout(BaseStrategy):
         self.trade_taken_today = False
         self.breakout_direction = 0
         self.active_bracket_orders = None
+        self.aggressive_breakout_detected = False  # Track aggressive breakout pending execution
 
     def next(self):
         current_dt = self.data.datetime.datetime(0)
@@ -110,17 +112,42 @@ class MLOpenRangeBreakout(BaseStrategy):
                 return
             self.log(f"[{current_time}] OR Calculation ENDED. High={self.opening_range_high:.2f}, Low={self.opening_range_low:.2f}")
 
-        # Phase 2: Detect Breakout
+        # Phase 2: Detect Breakout and Handle Entry Types
         if self.breakout_direction == 0:
-            current_price = self.data.close[0]
-            if current_price > self.opening_range_high:
-                self.breakout_direction = 1
-                self.log(f"[{current_time}] BULLISH breakout detected at {current_price:.2f}")
-                self._handle_breakout_signal()
-            elif current_price < self.opening_range_low:
-                self.breakout_direction = -1
-                self.log(f"[{current_time}] BEARISH breakout detected at {current_price:.2f}")
-                self._handle_breakout_signal()
+            if self.p.entry_type == 'aggressive':
+                # Aggressive: Detect breakout when high/low breaches OR, enter on next bar
+                current_high = self.data.high[0]
+                current_low = self.data.low[0]
+                
+                if current_high > self.opening_range_high:
+                    self.breakout_direction = 1
+                    self.aggressive_breakout_detected = True
+                    self.log(f"[{current_time}] AGGRESSIVE BULLISH breakout detected - high {current_high:.2f} > OR high {self.opening_range_high:.2f}")
+                    self.log(f"[{current_time}] Will enter on next bar")
+                elif current_low < self.opening_range_low:
+                    self.breakout_direction = -1
+                    self.aggressive_breakout_detected = True
+                    self.log(f"[{current_time}] AGGRESSIVE BEARISH breakout detected - low {current_low:.2f} < OR low {self.opening_range_low:.2f}")
+                    self.log(f"[{current_time}] Will enter on next bar")
+                    
+            else:  # conservative
+                # Conservative: Detect breakout when candle close is outside OR, enter on next bar
+                current_price = self.data.close[0]
+                if current_price > self.opening_range_high:
+                    self.breakout_direction = 1
+                    self.aggressive_breakout_detected = True  # Reuse same flag for consistent behavior
+                    self.log(f"[{current_time}] CONSERVATIVE BULLISH breakout detected - close {current_price:.2f} > OR high {self.opening_range_high:.2f}")
+                    self.log(f"[{current_time}] Will enter on next bar")
+                elif current_price < self.opening_range_low:
+                    self.breakout_direction = -1
+                    self.aggressive_breakout_detected = True  # Reuse same flag for consistent behavior
+                    self.log(f"[{current_time}] CONSERVATIVE BEARISH breakout detected - close {current_price:.2f} < OR low {self.opening_range_low:.2f}")
+                    self.log(f"[{current_time}] Will enter on next bar")
+                    
+        elif self.aggressive_breakout_detected and not self.trade_taken_today:
+            # Execute the trade on the next bar after breakout detection (both aggressive and conservative)
+            self.log(f"[{current_time}] Executing {self.p.entry_type.upper()} entry on next bar after breakout")
+            self._handle_breakout_signal()
 
     def _handle_breakout_signal(self):
         self.trade_taken_today = True
@@ -128,7 +155,12 @@ class MLOpenRangeBreakout(BaseStrategy):
 
     def _execute_trade(self):
         current_time = self.data.datetime.time()
-        entry_price = self.data.close[0]
+        
+        # Both aggressive and conservative entries now execute on the bar after detection
+        # For realistic backtesting, we use the current bar's open price (simulating next bar entry)
+        entry_price = self.data.open[0]
+        self.log(f"[{current_time}] Using {self.p.entry_type.upper()} entry at next bar open: {entry_price:.2f}")
+            
         range_size = self.opening_range_high - self.opening_range_low
         if range_size <= 0:
             self.log(f"[{current_time}] Invalid range size ({range_size:.2f}). Skipping trade.")
@@ -147,7 +179,7 @@ class MLOpenRangeBreakout(BaseStrategy):
             self.current_sl = sl_price
             self.breakout_direction_label = 'BULLISH'
             
-            self.log(f"[{current_time}] Submitting BUY BRACKET: Entry={entry_price:.2f}, TP={tp_price:.2f}, SL={sl_price:.2f}")
+            self.log(f"[{current_time}] Submitting BUY BRACKET ({self.p.entry_type.upper()}): Entry={entry_price:.2f}, TP={tp_price:.2f}, SL={sl_price:.2f}")
             self.active_bracket_orders = self.buy_bracket(limitprice=tp_price, stopprice=sl_price)
         elif self.breakout_direction == -1:
             tp_price = entry_price - (range_size * self.p.take_profit_multiplier)
@@ -158,7 +190,7 @@ class MLOpenRangeBreakout(BaseStrategy):
             self.current_sl = sl_price
             self.breakout_direction_label = 'BEARISH'
             
-            self.log(f"[{current_time}] Submitting SELL BRACKET: Entry={entry_price:.2f}, TP={tp_price:.2f}, SL={sl_price:.2f}")
+            self.log(f"[{current_time}] Submitting SELL BRACKET ({self.p.entry_type.upper()}): Entry={entry_price:.2f}, TP={tp_price:.2f}, SL={sl_price:.2f}")
             self.active_bracket_orders = self.sell_bracket(limitprice=tp_price, stopprice=sl_price)
 
     def notify_order(self, order):

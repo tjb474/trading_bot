@@ -56,6 +56,11 @@ strategies:
     # Daily position close time (when to close any open positions)
     daily_close_time: "16:00:00"
     
+    # Trade Entry Type
+    # "aggressive": Enter on next candle open when high/low breaches OR
+    # "conservative": Enter when candle close is outside OR
+    entry_type: "aggressive"
+    
     # Risk Management (relative to OR, from the entry price)
     # Todo: Consider using ATR or volatility-based stop loss
     risk:
