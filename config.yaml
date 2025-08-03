@@ -59,13 +59,25 @@ strategies:
     # Trade Entry Type
     # "aggressive": Enter on next candle open when high/low breaches OR
     # "conservative": Enter when candle close is outside OR
-    entry_type: "aggressive"
+    entry_type: "conservative"
     
-    # Risk Management (relative to OR, from the entry price)
-    # Todo: Consider using ATR or volatility-based stop loss
+    # Risk Management Configuration
     risk:
-      take_profit_multiplier: 1.0
-      stop_loss_multiplier: 1.1
+      # Risk calculation method: "basic" or "atr"
+      # "basic": Uses opening range size as base for TP/SL calculations
+      # "atr": Uses Average True Range for volatility-adjusted TP/SL
+      method: "atr"
+      
+      # Basic Method: Multipliers relative to opening range size from entry price
+      basic:
+        take_profit_multiplier: 1.0
+        stop_loss_multiplier: 1.1
+      
+      # ATR Method: Volatility-adjusted risk management
+      atr:
+        window: 14  # ATR calculation period
+        take_profit_multiplier: 4.0  # Multiplier of ATR for take profit
+        stop_loss_multiplier: 2.5    # Multiplier of ATR for stop loss
     
     # Feature Engineering
     features:

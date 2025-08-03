@@ -362,19 +362,28 @@ class BacktestORBVisualizer:
                     day_end = day_end.tz_localize(df.index.tz)
                 
                 # Find start and end positions in the data
-                entry_pos = df.index.get_indexer([entry_time], method='nearest')[0]
+                entry_idx = df.index.get_indexer([entry_time], method='nearest')[0]
+                if entry_idx < 0:
+                    continue
+                    
                 if exit_time:
                     end_time = min(exit_time, day_end)
-                    end_pos = df.index.get_indexer([end_time], method='nearest')[0]
+                    end_idx = df.index.get_indexer([end_time], method='nearest')[0]
                 else:
-                    end_pos = df.index.get_indexer([day_end], method='nearest')[0]
+                    end_idx = df.index.get_indexer([day_end], method='nearest')[0]
                 
-                if entry_pos >= 0 and end_pos >= 0 and end_pos > entry_pos:
-                    # Draw entry price line (blue)
-                    ax.plot([entry_pos, end_pos], [entry_price, entry_price],
-                           color='blue', linestyle='-', linewidth=2, alpha=0.7,
-                           label='Entry Price' if not entry_line_added else "")
-                    entry_line_added = True
+                if end_idx < 0 or end_idx <= entry_idx:
+                    continue
+                
+                # Convert to mplfinance x-coordinates (sequential positions, not index values)
+                entry_pos = entry_idx
+                end_pos = end_idx
+                
+                # Draw entry price line (blue)
+                ax.plot([entry_pos, end_pos], [entry_price, entry_price],
+                       color='blue', linestyle='-', linewidth=2, alpha=0.7,
+                       label='Entry Price' if not entry_line_added else "")
+                entry_line_added = True
                         
             except Exception as e:
                 logger.warning(f"Could not add entry price line for trade: {e}")

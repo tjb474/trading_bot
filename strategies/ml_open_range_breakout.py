@@ -23,6 +23,10 @@ class MLOpenRangeBreakout(BaseStrategy):
         ('feature_list', None),
         ('feature_data', None),
         ('entry_type', 'conservative'),  # 'aggressive' or 'conservative'
+        # Risk management configuration - parameters come from config.yaml risk section
+        ('method', 'basic'),  # 'basic' or 'atr' - risk calculation method
+        ('basic', None),      # basic risk parameters dict
+        ('atr', None),        # atr risk parameters dict
     )
 
     def __init__(self):
@@ -36,6 +40,27 @@ class MLOpenRangeBreakout(BaseStrategy):
         self.returns = bt.indicators.PercentChange(self.data.close, period=1)
         self.volatility = bt.indicators.StandardDeviation(self.returns, period=self.p.volatility_window)
         self.rsi = bt.indicators.RSI_SMA(self.data.close, period=self.p.rsi_window, safediv=True)
+        
+        # Add ATR indicator for dynamic risk management
+        # Use ATR window from config, fallback to atr_window param if available
+        atr_window = 14  # default
+        if self.p.atr and 'window' in self.p.atr:
+            atr_window = self.p.atr['window']
+        elif hasattr(self.p, 'atr_window'):
+            atr_window = self.p.atr_window
+        self.atr = bt.indicators.ATR(self.data, period=atr_window)
+        
+        self.log(f"Risk management method: {self.p.method}")
+        if self.p.method == 'atr':
+            atr_config = self.p.atr or {}
+            tp_mult = atr_config.get('take_profit_multiplier', 3.0)
+            sl_mult = atr_config.get('stop_loss_multiplier', 2.0)
+            self.log(f"ATR configuration: window={atr_window}, TP_mult={tp_mult}, SL_mult={sl_mult}")
+        else:
+            basic_config = self.p.basic or {}
+            tp_mult = basic_config.get('take_profit_multiplier', 1.0)
+            sl_mult = basic_config.get('stop_loss_multiplier', 0.5)
+            self.log(f"Basic configuration: TP_mult={tp_mult}, SL_mult={sl_mult}")
 
         # State Variables
         self._last_date = None
@@ -115,7 +140,7 @@ class MLOpenRangeBreakout(BaseStrategy):
         # Phase 2: Detect Breakout and Handle Entry Types
         if self.breakout_direction == 0:
             if self.p.entry_type == 'aggressive':
-                # Aggressive: Detect breakout when high/low breaches OR, enter on next bar
+                # Aggressive: Detect breakout when high/low breaches OR, set flag to enter next bar
                 current_high = self.data.high[0]
                 current_low = self.data.low[0]
                 
@@ -123,30 +148,30 @@ class MLOpenRangeBreakout(BaseStrategy):
                     self.breakout_direction = 1
                     self.aggressive_breakout_detected = True
                     self.log(f"[{current_time}] AGGRESSIVE BULLISH breakout detected - high {current_high:.2f} > OR high {self.opening_range_high:.2f}")
-                    self.log(f"[{current_time}] Will enter on next bar")
+                    self.log(f"[{current_time}] Will enter on next bar open")
                 elif current_low < self.opening_range_low:
                     self.breakout_direction = -1
                     self.aggressive_breakout_detected = True
                     self.log(f"[{current_time}] AGGRESSIVE BEARISH breakout detected - low {current_low:.2f} < OR low {self.opening_range_low:.2f}")
-                    self.log(f"[{current_time}] Will enter on next bar")
+                    self.log(f"[{current_time}] Will enter on next bar open")
                     
             else:  # conservative
-                # Conservative: Detect breakout when candle close is outside OR, enter on next bar
+                # Conservative: Detect breakout when candle close is outside OR, set flag to enter next bar
                 current_price = self.data.close[0]
                 if current_price > self.opening_range_high:
                     self.breakout_direction = 1
-                    self.aggressive_breakout_detected = True  # Reuse same flag for consistent behavior
+                    self.aggressive_breakout_detected = True
                     self.log(f"[{current_time}] CONSERVATIVE BULLISH breakout detected - close {current_price:.2f} > OR high {self.opening_range_high:.2f}")
-                    self.log(f"[{current_time}] Will enter on next bar")
+                    self.log(f"[{current_time}] Will enter on next bar open")
                 elif current_price < self.opening_range_low:
                     self.breakout_direction = -1
-                    self.aggressive_breakout_detected = True  # Reuse same flag for consistent behavior
+                    self.aggressive_breakout_detected = True
                     self.log(f"[{current_time}] CONSERVATIVE BEARISH breakout detected - close {current_price:.2f} < OR low {self.opening_range_low:.2f}")
-                    self.log(f"[{current_time}] Will enter on next bar")
+                    self.log(f"[{current_time}] Will enter on next bar open")
                     
         elif self.aggressive_breakout_detected and not self.trade_taken_today:
-            # Execute the trade on the next bar after breakout detection (both aggressive and conservative)
-            self.log(f"[{current_time}] Executing {self.p.entry_type.upper()} entry on next bar after breakout")
+            # Execute the trade on the next bar after breakout detection (now using next bar's open price)
+            self.log(f"[{current_time}] Executing {self.p.entry_type.upper()} entry at current bar open")
             self._handle_breakout_signal()
 
     def _handle_breakout_signal(self):
@@ -156,42 +181,82 @@ class MLOpenRangeBreakout(BaseStrategy):
     def _execute_trade(self):
         current_time = self.data.datetime.time()
         
-        # Both aggressive and conservative entries now execute on the bar after detection
-        # For realistic backtesting, we use the current bar's open price (simulating next bar entry)
+        # We are now on the bar AFTER breakout detection
+        # self.data.open[0] is the open price of this bar (the next bar after detection)
+        # This avoids look-ahead bias since we can realistically enter at this bar's open
         entry_price = self.data.open[0]
-        self.log(f"[{current_time}] Using {self.p.entry_type.upper()} entry at next bar open: {entry_price:.2f}")
+        self.log(f"[{current_time}] Using {self.p.entry_type.upper()} entry at current bar open: {entry_price:.2f}")
+        
+        # Calculate TP/SL based on risk management method
+        if self.p.method == 'atr':
+            # ATR-based risk management - use previous bar's ATR to avoid look-ahead bias
+            current_atr = self.atr[-1]  # Use previous bar's ATR, not current bar
+            if current_atr <= 0:
+                self.log(f"[{current_time}] Invalid ATR value ({current_atr:.4f}). Skipping trade.")
+                return
+                
+            self.log(f"[{current_time}] ATR-based risk management: ATR={current_atr:.2f} (previous bar)")
             
-        range_size = self.opening_range_high - self.opening_range_low
-        if range_size <= 0:
-            self.log(f"[{current_time}] Invalid range size ({range_size:.2f}). Skipping trade.")
-            return
+            # Get ATR multipliers from config
+            atr_config = self.p.atr or {}
+            atr_tp_mult = atr_config.get('take_profit_multiplier', 3.0)
+            atr_sl_mult = atr_config.get('stop_loss_multiplier', 2.0)
+            
+            if self.breakout_direction == 1:  # Long position
+                tp_price = entry_price + (current_atr * atr_tp_mult)
+                sl_price = entry_price - (current_atr * atr_sl_mult)
+            else:  # Short position
+                tp_price = entry_price - (current_atr * atr_tp_mult)
+                sl_price = entry_price + (current_atr * atr_sl_mult)
+                
+            risk_reward_ratio = atr_tp_mult / atr_sl_mult
+            self.log(f"[{current_time}] ATR TP/SL: TP_mult={atr_tp_mult}, SL_mult={atr_sl_mult}, R:R={risk_reward_ratio:.2f}")
+            
+        else:
+            # Basic method: Use opening range size
+            range_size = self.opening_range_high - self.opening_range_low
+            if range_size <= 0:
+                self.log(f"[{current_time}] Invalid range size ({range_size:.2f}). Skipping trade.")
+                return
+                
+            self.log(f"[{current_time}] Basic risk management: OR_size={range_size:.2f}")
+            
+            # Get basic multipliers from config
+            basic_config = self.p.basic or {}
+            basic_tp_mult = basic_config.get('take_profit_multiplier', 1.0)
+            basic_sl_mult = basic_config.get('stop_loss_multiplier', 0.5)
+            
+            if self.breakout_direction == 1:  # Long position
+                tp_price = entry_price + (range_size * basic_tp_mult)
+                sl_price = entry_price - (range_size * basic_sl_mult)
+            else:  # Short position
+                tp_price = entry_price - (range_size * basic_tp_mult)
+                sl_price = entry_price + (range_size * basic_sl_mult)
+                
+            risk_reward_ratio = basic_tp_mult / basic_sl_mult
+            self.log(f"[{current_time}] Basic TP/SL: TP_mult={basic_tp_mult}, SL_mult={basic_sl_mult}, R:R={risk_reward_ratio:.2f}")
 
         # Store ORB data for trade tracking (needed for base strategy)
         self.set_orb_data(self.opening_range_high, self.opening_range_low)
 
-        # self.active_bracket_orders will now correctly be a LIST of 3 orders
+        # Execute the trade with calculated TP/SL levels
         if self.breakout_direction == 1:
-            tp_price = entry_price + (range_size * self.p.take_profit_multiplier)
-            sl_price = entry_price - (range_size * self.p.stop_loss_multiplier)
-            
             # Store for trade tracking
             self.current_tp = tp_price
             self.current_sl = sl_price
             self.breakout_direction_label = 'BULLISH'
             
-            self.log(f"[{current_time}] Submitting BUY BRACKET ({self.p.entry_type.upper()}): Entry={entry_price:.2f}, TP={tp_price:.2f}, SL={sl_price:.2f}")
-            self.active_bracket_orders = self.buy_bracket(limitprice=tp_price, stopprice=sl_price)
-        elif self.breakout_direction == -1:
-            tp_price = entry_price - (range_size * self.p.take_profit_multiplier)
-            sl_price = entry_price + (range_size * self.p.stop_loss_multiplier)
+            self.log(f"[{current_time}] Submitting BUY BRACKET ({self.p.entry_type.upper()}, {self.p.method.upper()}): Entry={entry_price:.2f}, TP={tp_price:.2f}, SL={sl_price:.2f}")
+            self.active_bracket_orders = self.buy_bracket(price=entry_price, limitprice=tp_price, stopprice=sl_price)
             
+        elif self.breakout_direction == -1:
             # Store for trade tracking
             self.current_tp = tp_price
             self.current_sl = sl_price
             self.breakout_direction_label = 'BEARISH'
             
-            self.log(f"[{current_time}] Submitting SELL BRACKET ({self.p.entry_type.upper()}): Entry={entry_price:.2f}, TP={tp_price:.2f}, SL={sl_price:.2f}")
-            self.active_bracket_orders = self.sell_bracket(limitprice=tp_price, stopprice=sl_price)
+            self.log(f"[{current_time}] Submitting SELL BRACKET ({self.p.entry_type.upper()}, {self.p.method.upper()}): Entry={entry_price:.2f}, TP={tp_price:.2f}, SL={sl_price:.2f}")
+            self.active_bracket_orders = self.sell_bracket(price=entry_price, limitprice=tp_price, stopprice=sl_price)
 
     def notify_order(self, order):
         current_time = self.data.datetime.time()

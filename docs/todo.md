@@ -6,8 +6,8 @@
 - [X] Backtesting without meta labeling, to test the base strategy
 - [X] **Fix incorrect trade direction bug (June 11th case)** - Added validation and enhanced logging
 - [X] **Double check entry logic: close on or above the OR threshold** - Added breakout validation
-- [ ] Close the trade if TP or SL not hit by 4:55pm
-- [ ] Check that the entry is realistic i.e. on close of first bar outside OR  
+- [X] Close the trade if TP or SL not hit by 4:55pm
+- [X] Check that the entry is realistic i.e. on close of first bar outside OR  
 - [ ] TP and SL based on ATR
 - [ ] Improve core strategy - see chat with gemini (regime)
 - [ ] Update KPI to an R:R or % gain, or something to do with ATR
@@ -33,6 +33,7 @@
 - [ ] Task 2
 - [ ] More tickers - trade only the most likely?
 - [ ] Test - Exit - After 3pm if entry price reached, close trade
+- [ ] Look at the time distribution of when the low or high of the day is made
 
 ## Notes
 - Add any additional notes or context here.
